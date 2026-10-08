@@ -19,8 +19,8 @@
     </header>
 
     <main id="home" class="home">
-      <div class="eyebrow">ПРОТОКОЛ I / ДОСТУП К УСТРОЙСТВУ</div>
-      <h1>Два оператора.<br><span>Одна последовательность.</span></h1>
+      <div class="eyebrow">ДВА ПРОТОКОЛА / ДОСТУП К УСТРОЙСТВУ</div>
+      <h1>Два оператора.<br><span>Один канал связи.</span></h1>
       <p class="intro">Один видит код на большом экране. Другой вводит его на телефонной консоли. Оба подключаются через интернет; общая Wi-Fi-сеть не нужна.</p>
       <div class="role-grid">
         <section class="role-card"><span class="card-number">01 / НАБЛЮДАТЕЛЬ</span><h2>Большой экран</h2><p>Открой на компьютере, подключённом к телевизору. Создай сеанс и подключи телефон.</p><button id="create" class="primary">Создать сеанс</button></section>
@@ -34,27 +34,29 @@
     <main id="host" class="host" hidden>
       <div class="session-bar"><div><span class="eyebrow">СЕАНС</span><strong id="room-code">······</strong><span id="demo-label" hidden>ПРОВЕРКА НА ОДНОМ КОМПЬЮТЕРЕ</span></div><span id="host-connection" class="connection">Создание канала…</span></div>
       <section class="monitor" aria-label="Экран испытания">
-        <div class="monitor-top"><span>ПРОТОКОЛ I · МНЕМОНИЧЕСКИЙ ШЛЮЗ</span><span id="attempt">ПОПЫТКА 00</span></div>
-        <div class="stage-heading"><div><span id="host-phase" class="eyebrow">ОЖИДАНИЕ ОПЕРАТОРА</span><h1 id="host-title">Канал управления закрыт</h1></div><div class="timer-block"><span id="host-timer-label">ДО ЗАПУСКА</span><output id="host-timer">—</output><div class="timer-track"><div id="host-timer-bar"></div></div></div></div>
+        <div class="monitor-top"><span id="protocol-title">ПРОТОКОЛ I · МНЕМОНИЧЕСКИЙ ШЛЮЗ</span><span id="attempt">ПОПЫТКА 00</span></div>
+        <div id="stage-surface" class="stage-surface"><div class="stage-heading"><div><span id="host-phase" class="eyebrow">ОЖИДАНИЕ ОПЕРАТОРА</span><h1 id="host-title">Канал управления закрыт</h1></div><div class="timer-block"><span id="host-timer-label">ДО ЗАПУСКА</span><output id="host-timer">—</output><div class="timer-track"><div id="host-timer-bar"></div></div></div></div>
         <div id="lobby-content" class="lobby-content"><div class="lobby-text"><div class="terminal-prompt">&gt; Ожидание удалённой консоли_</div><p id="lobby-instructions">Отсканируй QR-код телефоном или открой этот сайт и введи код сеанса.</p><a id="phone-link" class="phone-link" target="_blank" rel="noopener">Открыть телефонную консоль</a><button id="copy-link" class="text-button">Скопировать ссылку</button></div><div class="qr-panel"><div id="qr" aria-label="QR-код для подключения телефона"></div><span>КОНСОЛЬ ОПЕРАТОРА</span></div></div>
+        <div id="transition-zone" class="transition-zone" hidden><span class="result-mark">✓</span><h2>Первый шлюз открыт</h2><p>Подключение поискового зонда…</p></div>
+        <div id="field-zone" class="field-zone" hidden><div class="field-legend"><span>ЦЕЛЕВОЙ УЗЕЛ <b>◇</b> · ОБЗОР 2 ГЕКСА</span><span id="probe-position"></span></div><svg id="field" role="img" aria-label="Поле поиска с туманом войны"></svg><p id="field-contact" class="field-contact"></p></div>
         <div id="sequence-zone" class="sequence-zone" hidden><div id="sequence" class="sequence" aria-label="Последовательность стрелок"></div><p class="monitor-caption">Запомни порядок. Через 10 секунд последовательность исчезнет.</p></div>
         <div id="input-zone" class="input-zone" hidden><div class="signal-seal" aria-hidden="true">✣</div><h2>Последовательность скрыта</h2><p>Передавай оператору команды по памяти.</p><div id="host-progress" class="progress-slots" aria-label="Ход ввода"></div></div>
         <div id="result-zone" class="result-zone" hidden><div id="result-mark" class="result-mark" aria-hidden="true">✓</div><h2 id="result-title"></h2><p id="result-text"></p><div id="result-sequence" class="sequence result-sequence"></div></div>
-        <div id="host-paused" class="pause-layer" hidden><span class="eyebrow">ПРОТОКОЛ ПРИОСТАНОВЛЕН</span><h2>Таймер остановлен</h2><p id="pause-explanation">Мастер поставил испытание на паузу.</p></div>
+        </div><div id="host-paused" class="pause-layer" hidden><span class="eyebrow">ПРОТОКОЛ ПРИОСТАНОВЛЕН</span><h2>Таймер остановлен</h2><p id="pause-explanation">Мастер поставил испытание на паузу.</p></div>
         <div class="monitor-bottom"><span id="host-status">Доступ к устройству / блок 01</span><span>LEX IMPERIALIS · AUTH/07</span></div>
       </section>
-      <div class="host-controls"><div class="start-controls"><button id="start" class="primary" disabled>Начать испытание</button><button id="pause" class="secondary" disabled>Пауза</button></div><label class="length-control" for="length">Стрелок в последовательности <select id="length"><option>4</option><option>6</option><option selected>8</option><option>10</option><option>12</option></select></label></div>
+      <div class="host-controls"><div class="start-controls"><button id="start" class="primary" disabled>Начать испытание</button><button id="pause" class="secondary" disabled>Пауза</button></div><label id="length-control" class="length-control" for="length">Стрелок в последовательности <select id="length"><option>4</option><option>6</option><option selected>8</option><option>10</option><option>12</option></select></label></div>
       <p id="host-error" class="error-text" role="alert"></p>
       <div class="lower-help"><span>Неверная клавиша или истёкшее время завершают попытку. Новую запускает мастер.</span><button id="reconnect-host" class="text-button" hidden>Восстановить канал</button></div>
     </main>
 
     <main id="phone" class="phone" hidden>
       <div class="phone-heading"><span class="eyebrow">КОНСОЛЬ ОПЕРАТОРА</span><div><strong id="phone-room">······</strong><span id="phone-connection" class="connection">Подключение…</span></div></div>
-      <section class="phone-terminal"><div class="terminal-top"><span>INPUT / MNEMO-01</span><span id="phone-phase">ОЖИДАНИЕ</span></div><div class="phone-timer-row"><h1 id="phone-title">Соединение с кораблём</h1><output id="phone-timer">—</output></div><p id="phone-instruction">Ожидай установления связи.</p><div id="phone-progress" class="phone-progress" aria-label="Введённые символы"></div><div class="keypad" id="keypad" aria-label="Клавиатура 3 на 3"></div><div class="terminal-bottom"><span id="phone-counter">00 / 08</span><span id="key-state">КЛАВИШИ ЗАБЛОКИРОВАНЫ</span></div></section>
-      <p class="phone-help">После каждого нажатия все клавиши меняют места. Пять глифов служат помехой: вводи только стрелки.</p>
+      <section class="phone-terminal"><div class="terminal-top"><span id="phone-protocol">INPUT / MNEMO-01</span><span id="phone-phase">ОЖИДАНИЕ</span></div><div class="phone-timer-row"><h1 id="phone-title">Соединение с кораблём</h1><output id="phone-timer">—</output></div><p id="phone-instruction">Ожидай установления связи.</p><div id="phone-progress" class="phone-progress" aria-label="Введённые символы"></div><div id="phone-transition" class="phone-transition" hidden>◈<br><small>ПОДКЛЮЧЕНИЕ ЗОНДА</small></div><div id="movement" class="movement" aria-label="Управление зондом" hidden><button class="move-key move-up" data-direction="↑" aria-label="Зонд вверх">↑</button><button class="move-key move-left" data-direction="←" aria-label="Зонд влево">←</button><div class="move-center" aria-hidden="true">◎</div><button class="move-key move-right" data-direction="→" aria-label="Зонд вправо">→</button><button class="move-key move-down" data-direction="↓" aria-label="Зонд вниз">↓</button></div><div class="keypad" id="keypad" aria-label="Клавиатура 3 на 3"></div><div class="terminal-bottom"><span id="phone-counter">00 / 08</span><span id="key-state">КЛАВИШИ ЗАБЛОКИРОВАНЫ</span></div></section>
+      <p id="phone-help" class="phone-help">После каждого нажатия все клавиши меняют места. Пять глифов служат помехой: вводи только стрелки.</p>
       <p id="phone-error" class="error-text" role="alert"></p><button id="reconnect-phone" class="secondary" hidden>Подключиться снова</button><button id="wake-phone" class="text-button">Не гасить экран телефона</button>
     </main>
-    <footer><span>IMPERIUM MALEDICTUM / КОРАБЕЛЬНОЕ ИСПЫТАНИЕ</span><span>ПРОТОТИП 0.2</span></footer>
+    <footer><span>IMPERIUM MALEDICTUM / КОРАБЕЛЬНОЕ ИСПЫТАНИЕ</span><span>ПРОТОТИП 0.3</span></footer>
     <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
   </div>
 </body>

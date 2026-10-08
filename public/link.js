@@ -104,7 +104,7 @@ export class Link {
     }
     // Polling is the heartbeat; it does not need an extra queued ping packet.
     if (payload.kind === 'ping') return true;
-    if (!['key', 'hello'].includes(payload.kind)) return false;
+    if (!['key', 'move', 'hello'].includes(payload.kind)) return false;
     this.queue.push({ packet: payload, requestId: this.streamId + '-' + crypto.randomUUID() });
     this.flush(); return true;
   }

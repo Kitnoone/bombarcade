@@ -26,7 +26,8 @@ function requireToken(token) { if (!TOKEN.test(token || '')) throw new RelayErro
 function packetValid(packet) {
   if (!packet || typeof packet !== 'object') return false;
   if (['hello', 'ping'].includes(packet.kind)) return true;
-  return packet.kind === 'key' && ['↑', '↓', '←', '→', 'Æ', 'Œ', 'Þ', 'Ð', 'Ƶ'].includes(packet.symbol) &&
+  return ['key', 'move'].includes(packet.kind) &&
+    (packet.kind === 'move' ? ['↑', '↓', '←', '→'] : ['↑', '↓', '←', '→', 'Æ', 'Œ', 'Þ', 'Ð', 'Ƶ', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']).includes(packet.symbol) &&
     ['round', 'layoutVersion', 'command'].every(k => Number.isSafeInteger(packet[k]) && packet[k] >= 0);
 }
 export async function relayRequest(req, db, now = Date.now()) {

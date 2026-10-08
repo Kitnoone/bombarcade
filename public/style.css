@@ -7,3 +7,53 @@
 @media(max-width:650px){.shell{padding:0 18px}.topbar{height:82px}.brand{font-size:16px;gap:9px}.brand-mark{font-size:30px;width:32px;height:35px}.brand small{font-size:8px}.top-right{gap:5px}.icon-button{font-size:10px;padding:7px}#fullscreen{display:none}.home{margin:35px auto}.home h1{font-size:36px}.intro{font-size:16px;margin-bottom:28px}.role-grid{grid-template-columns:1fr;gap:16px}.role-card h2{font-size:25px}.role-card p{min-height:0}.join-row{flex-direction:row}.join-row input{width:100px;font-size:20px}.join-row .primary{width:auto}.brief-rules{font-size:10px;gap:12px}.brief-rules b{font-size:18px}.session-bar{align-items:flex-start;flex-direction:column;gap:12px}.session-bar strong{font-size:21px}.monitor{padding:0 18px;min-height:470px}.monitor-top{font-size:9px;gap:10px}.stage-heading{padding:24px 0;gap:14px}.stage-heading h1{font-size:27px}.stage-heading .eyebrow{font-size:10px}.timer-block{width:64px}.timer-block output{font-size:38px}.timer-block>span{font-size:8px}.lobby-content{grid-template-columns:1fr;gap:20px}.qr-panel{width:160px;justify-self:center}.terminal-prompt{font-size:14px}.lobby-text p{font-size:14px}.phone-link{font-size:13px}.sequence{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.sequence:has(.sequence-tile:nth-child(10)){grid-template-columns:repeat(4,minmax(0,1fr))}.sequence-tile>span{font-size:40px}.monitor-caption{font-size:11px}.monitor-bottom{font-size:8px}.monitor-bottom>span:last-child{display:none}.host-controls{flex-direction:column;gap:20px}.start-controls{width:100%;gap:8px}.start-controls .primary{flex:1;font-size:14px;padding:12px}.start-controls .secondary{font-size:14px;padding:12px}.length-control{max-width:none}.lower-help{font-size:11px}.pause-layer h2{font-size:28px}.result-zone h2{font-size:22px}.result-zone p{font-size:13px}footer{font-size:8px}.phone{margin-top:18px}.phone-terminal{padding:0 16px}.key{height:clamp(72px,22vw,94px)}.keypad{gap:9px}.phone-timer-row h1{font-size:23px}#phone-instruction{font-size:13px}.phone-progress{gap:4px}.phone-progress .progress-slot{width:calc((100% - 28px)/8)}}
 @media(max-height:760px) and (min-width:1000px){.topbar{height:78px}.host{margin-top:18px}.monitor{min-height:400px}.session-bar{margin-bottom:14px}.stage-heading{padding:22px 0}.host-controls{padding:16px 0}.sequence-zone{padding:6px 0 24px}.lobby-content{padding-bottom:22px}footer{padding:14px 0}.qr-panel{width:150px;justify-self:end}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+
+/* The two protocols keep the same terminal and room throughout the fade. */
+.stage-surface{flex:1;display:flex;flex-direction:column}
+.transition-zone{text-align:center;padding:20px 0 80px;min-height:220px;display:grid;place-content:center}
+.transition-zone p{color:var(--dim)}
+[data-stage=transition] .stage-surface,[data-stage=transition] .phone-terminal{animation:protocol-out 1.8s ease-in-out forwards}
+[data-protocol="2"] .stage-surface,[data-protocol="2"] .phone-terminal{animation:protocol-in .9s ease-out both}
+[data-paused="true"] .stage-surface,[data-paused="true"] .phone-terminal{animation-play-state:paused}
+@keyframes protocol-out{0%,22%{opacity:1;filter:blur(0)}100%{opacity:0;filter:blur(4px)}}
+@keyframes protocol-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.field-zone{padding-bottom:12px}
+.field-legend{display:flex;justify-content:space-between;gap:16px;font:14px var(--mono);color:var(--dim);padding:10px 0;border-bottom:1px solid var(--line)}
+.field-legend b{font-size:25px;color:var(--amber);line-height:1}
+#field{display:block;width:100%;height:clamp(230px,37vh,420px);background:radial-gradient(ellipse at center,#152219,#080e0b);border:1px solid var(--line);margin-top:12px}
+.hex{fill:#0b1410;stroke:#26392f;stroke-width:1;transition:fill .15s,stroke .15s}
+.hex.revealed{fill:#294635;stroke:#76956e}
+.node circle{fill:#152319;stroke:#a2afa5;stroke-width:1.5}
+.node text{fill:#bdcdbf;font:26px var(--mono)}
+.node.target circle{stroke:var(--amber);fill:#423521}
+.node.target text{fill:var(--amber);font-size:30px}
+.node.occupied{filter:drop-shadow(0 0 6px #e9bb67aa)}
+.probe{transition:transform .16s ease-out;pointer-events:none}
+.probe circle,.probe path{fill:none;stroke:#a3eddb;stroke-width:2}
+.probe .probe-halo{stroke:#a3eddb66;stroke-width:1}
+.probe .probe-core{fill:#a3eddb}
+.field-contact{font:14px/1.5 var(--mono);color:var(--amber);margin:10px 0 0;min-height:22px}
+[data-protocol="2"] .stage-heading{padding:20px 0 16px}
+[data-protocol="2"] .stage-heading h1{font-size:30px}
+[data-protocol="2"] .timer-block output{font-size:48px}
+[data-protocol="2"] .sequence-zone{padding:8px 0 18px}
+[data-protocol="2"] .sequence-tile{padding:6px 0}
+[data-protocol="2"] .sequence-tile>span{font-size:43px;color:var(--amber)}
+[data-protocol="2"] .sequence-tile small{margin-top:3px}
+[data-protocol="2"] .monitor-caption{margin-top:10px}
+[data-protocol="2"] .input-zone{padding:10px 0 18px}
+[data-protocol="2"] .input-zone .signal-seal{display:none}
+[data-protocol="2"] .input-zone p{margin-bottom:12px}
+.movement{display:grid;grid-template:repeat(3,94px)/repeat(3,1fr);gap:10px;margin:24px 0}
+.move-key{background:#1b2c23;border:1px solid #729078;color:var(--amber);font:54px var(--mono);touch-action:manipulation;user-select:none}
+.move-key:active:not(:disabled){background:#42563d;transform:translateY(2px)}
+.move-up{grid-area:1/2}.move-left{grid-area:2/1}.move-right{grid-area:2/3}.move-down{grid-area:3/2}
+.move-center{grid-area:2/2;display:grid;place-items:center;color:#a3eddb;font-size:40px;border:1px solid var(--line)}
+.numeric .key:nth-child(10){grid-column:2}
+.numeric .key>span{font-size:40px}
+.numeric .key>small{display:none}
+.numeric .key{height:70px;border-color:#8b7955;color:var(--amber)}
+.phone-transition{text-align:center;font-size:75px;color:var(--amber);padding:40px 0 70px}
+.phone-transition small{font:12px var(--mono)}
+@media(max-width:650px){.field-legend{font-size:11px;gap:6px}[data-protocol="2"] .stage-heading h1{font-size:24px}[data-protocol="2"] .timer-block output{font-size:38px}.movement{grid-template-rows:repeat(3,82px)}.numeric .key{height:64px}#field{height:260px}}
+@media(prefers-reduced-motion:reduce){.stage-surface,.phone-terminal{animation:none!important}.probe,.hex{transition:none!important}}

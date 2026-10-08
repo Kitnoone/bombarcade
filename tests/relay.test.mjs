@@ -79,3 +79,15 @@ test('unknown and expired rooms, invalid packets and foreign origins fail clearl
     assert.equal((await call('health',undefined,undefined,10000,'https://other.example')).status,403);
   }finally{sqlite.close();}
 });
+test('second protocol movement and all decimal digits cross the relay',async()=>{
+  const {call,sqlite}=fixture();try{
+    await setup(call);
+    for(const [i,symbol] of ['↑','↓','←','→','0','1','2','3','4','5','6','7','8','9'].entries()){
+      const packet={kind:i<4?'move':'key',symbol,round:2,layoutVersion:i,command:i+1};
+      assert.equal((await call('ABC234/event',{requestId:'second-protocol-'+i,packet},PHONE)).status,200);
+    }
+    const events=(await call('ABC234/host',undefined,HOST)).json.events.filter(e=>e.packet.kind!=='hello');
+    assert.equal(events.length,14);assert.equal(events[4].packet.symbol,'0');
+    assert.equal((await call('ABC234/event',{requestId:'invalid-move-1234',packet:{kind:'move',symbol:'5',round:2,layoutVersion:1,command:1}},PHONE)).status,400);
+  }finally{sqlite.close();}
+});
