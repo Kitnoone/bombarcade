@@ -35,9 +35,9 @@ export class Link {
     };
     this.onStatus(this.role === 'host' ? 'ready' : 'connecting');
   }
-  async request(path, body) {
+  async request(path, body, timeoutMs = 4500) {
     const controller = new AbortController(); this.controllers.add(controller);
-    const timeout = setTimeout(() => controller.abort(), 4500);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(RELAY_URL + '/api/relay/' + path, {
         method: body === undefined ? 'GET' : 'POST', cache: 'no-store', credentials: 'omit',
@@ -55,8 +55,8 @@ export class Link {
   }
   async openRelay() {
     try {
-      if (this.role === 'host') await this.request('create', { room: this.room, token: this.token });
-      else await this.request(this.room + '/join', { clientId: this.clientId, token: this.token, requestId: this.streamId });
+      if (this.role === 'host') await this.request('create', { room: this.room, token: this.token }, 30000);
+      else await this.request(this.room + '/join', { clientId: this.clientId, token: this.token, requestId: this.streamId }, 30000);
       if (this.closed) return;
       this.started = true;
       this.onStatus(this.role === 'host' ? 'ready' : 'connected');
