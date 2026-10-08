@@ -8,7 +8,6 @@
   <title>Bombarcade · Корабельный терминал</title>
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./style.css">
-  <script defer src="./vendor/peerjs.min.js"></script>
   <script defer src="./vendor/qrcode.js"></script>
   <script type="module" src="./app.js"></script>
 </head>
@@ -22,7 +21,7 @@
     <main id="home" class="home">
       <div class="eyebrow">ПРОТОКОЛ I / ДОСТУП К УСТРОЙСТВУ</div>
       <h1>Два оператора.<br><span>Одна последовательность.</span></h1>
-      <p class="intro">Один видит код на большом экране. Другой вводит его на телефонной консоли.</p>
+      <p class="intro">Один видит код на большом экране. Другой вводит его на телефонной консоли. Оба подключаются через интернет; общая Wi-Fi-сеть не нужна.</p>
       <div class="role-grid">
         <section class="role-card"><span class="card-number">01 / НАБЛЮДАТЕЛЬ</span><h2>Большой экран</h2><p>Открой на компьютере, подключённом к телевизору. Создай сеанс и подключи телефон.</p><button id="create" class="primary">Создать сеанс</button></section>
         <form id="join-form" class="role-card"><span class="card-number">02 / ОПЕРАТОР</span><h2>Телефонная консоль</h2><label for="room-input">Код с большого экрана</label><div class="join-row"><input id="room-input" name="room" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC234" required pattern="[A-Za-z0-9]{6}"><button class="primary" type="submit">Подключиться</button></div><p>Можно просто отсканировать QR-код сеанса.</p></form>
@@ -55,7 +54,7 @@
       <p class="phone-help">После каждого нажатия все клавиши меняют места. Пять глифов служат помехой: вводи только стрелки.</p>
       <p id="phone-error" class="error-text" role="alert"></p><button id="reconnect-phone" class="secondary" hidden>Подключиться снова</button><button id="wake-phone" class="text-button">Не гасить экран телефона</button>
     </main>
-    <footer><span>IMPERIUM MALEDICTUM / КОРАБЕЛЬНОЕ ИСПЫТАНИЕ</span><span>ПРОТОТИП 0.1</span></footer>
+    <footer><span>IMPERIUM MALEDICTUM / КОРАБЕЛЬНОЕ ИСПЫТАНИЕ</span><span>ПРОТОТИП 0.2</span></footer>
     <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
   </div>
 </body>
