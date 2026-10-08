@@ -21,7 +21,7 @@
 
 ## Публикация на GitHub Pages
 
-Игра публикуется на GitHub Pages автоматически. Workflow загружает папку `public`; при публикации из корня ветки стартовая страница открывает `public/`, сохраняя параметры комнаты. Оба способа ведут к игре на GitHub. Ничего устанавливать игрокам не нужно.
+Игра публикуется на GitHub Pages автоматически. Workflow загружает стартовую страницу и папку `public` в той же структуре, что и публикация из корня ветки. Стартовая страница открывает `public/`, сохраняя параметры комнаты. Оба способа ведут к игре на GitHub. Ничего устанавливать игрокам не нужно.
 
 Однократно открой [Settings → Pages](https://github.com/Kitnoone/bombarcade/settings/pages), выбери **Build and deployment → Source → GitHub Actions**. Затем в [Actions](https://github.com/Kitnoone/bombarcade/actions) выбери **Verify and publish → Run workflow → main**. После успешного задания `deploy` сайт доступен по адресу:
 
