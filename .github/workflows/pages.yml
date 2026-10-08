@@ -1,0 +1,56 @@
+name: Verify and publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      pages_enabled: ${{ steps.pages.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: npm test
+      - run: node --check public/app.js && node --check public/link.js
+      - name: Check Pages setup
+        id: pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/pages" > /tmp/pages.json 2>/dev/null; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo '### One-time setup required' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Open Settings → Pages → Source: GitHub Actions, then run this workflow again.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+  deploy:
+    needs: verify
+    if: needs.verify.outputs.pages_enabled == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: public
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5
