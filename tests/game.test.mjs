@@ -10,13 +10,13 @@ function fixture() {
 function press(game, symbol, overrides = {}) {
   return game.press({ symbol, round: game.round, layoutVersion: game.layoutVersion, ...overrides });
 }
-test('10 seconds of display, then a full 15-second input window', () => {
+test('10 seconds of display, then a full 20-second input window', () => {
   const { game, advance } = fixture(); game.start();
   assert.equal(game.stage, 'show'); assert.equal(game.remaining(), DEFAULTS.showMs);
   assert.equal(press(game, game.sequence[0]), false);
   advance(9999); assert.equal(game.stage, 'show');
-  advance(1); assert.equal(game.stage, 'input'); assert.equal(game.remaining(), 15000);
-  advance(14999); assert.equal(game.stage, 'input');
+  advance(1); assert.equal(game.stage, 'input'); assert.equal(game.remaining(), 20000);
+  advance(19999); assert.equal(game.stage, 'input');
   advance(1); assert.equal(game.stage, 'failure'); assert.equal(game.reason, 'timeout');
 });
 test('every key moves on every press; all nine symbols remain unique', () => {
@@ -57,12 +57,12 @@ test('pause freezes time in both phases and rejects input', () => {
   assert.equal(game.remaining(), 7000); assert.equal(game.stage, 'show');
   game.resume(); advance(7000); assert.equal(game.stage, 'input');
   advance(4000); game.pause(); advance(60000);
-  assert.equal(game.remaining(), 11000); assert.equal(press(game, game.sequence[0]), false);
-  game.resume(); advance(10999); assert.equal(game.stage, 'input'); advance(1); assert.equal(game.stage, 'failure');
+  assert.equal(game.remaining(), 16000); assert.equal(press(game, game.sequence[0]), false);
+  game.resume(); advance(15999); assert.equal(game.stage, 'input'); advance(1); assert.equal(game.stage, 'failure');
 });
 test('exact deadline rejects input and earlier rounds cannot change a new attempt', () => {
   const { game, advance } = fixture(); game.start(); const oldRound = game.round;
-  advance(10000); advance(15000); assert.equal(press(game, game.sequence[0]), false);
+  advance(10000); advance(20000); assert.equal(press(game, game.sequence[0]), false);
   game.start({ length: 10 }); advance(10000);
   assert.equal(game.sequence.length, 10); assert.equal(press(game, game.sequence[0], { round: oldRound }), false);
 });

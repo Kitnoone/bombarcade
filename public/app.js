@@ -1,4 +1,4 @@
-import { Trial, SYMBOLS } from './game.js';
+import { Trial, SYMBOLS, DEFAULTS } from './game.js';
 import { Link, createRoom, ROOM_PATTERN } from './link.js';
 
 const $ = id => document.getElementById(id);
@@ -63,7 +63,7 @@ $('room-input').oninput = e => { e.target.value = e.target.value.toUpperCase().r
 const phaseCopy = {
   lobby: ['ОЖИДАНИЕ ОПЕРАТОРА', 'Канал управления закрыт'],
   show: ['СЧИТЫВАНИЕ / 10 СЕКУНД', 'Передай последовательность'],
-  input: ['ВВОД / 15 СЕКУНД', 'Оператор, вводи код'],
+  input: ['ВВОД / 20 СЕКУНД', 'Оператор, вводи код'],
   success: ['ПРОТОКОЛ ПОДТВЕРЖДЁН', 'Первый шлюз открыт'],
   failure: ['ПРОТОКОЛ ОТКЛОНЁН', 'Попытка прервана'],
 };
@@ -100,7 +100,7 @@ function renderHost() {
   const remaining = trial.remaining();
   setText('host-timer', trial.active() ? leftSeconds(remaining) : '—');
   setText('host-timer-label', trial.active() ? (trial.paused ? 'ПАУЗА' : stage === 'show' ? 'СЧИТЫВАНИЕ' : 'ВВОД') : 'ДО ЗАПУСКА');
-  $('host-timer-bar').style.width = (trial.active() ? remaining / (stage === 'show' ? 10_000 : 15_000) * 100 : 0) + '%';
+  $('host-timer-bar').style.width = (trial.active() ? remaining / (stage === 'show' ? DEFAULTS.showMs : DEFAULTS.inputMs) * 100 : 0) + '%';
   $('host-timer').classList.toggle('urgent', stage === 'input' && remaining < 5000 && !trial.paused);
   show('lobby-content', stage === 'lobby'); show('sequence-zone', stage === 'show'); show('input-zone', stage === 'input');
   show('result-zone', stage === 'success' || stage === 'failure'); show('host-paused', trial.paused);

@@ -1,6 +1,6 @@
 export const SYMBOLS = ['↑', '↓', '←', '→', 'Æ', 'Œ', 'Þ', 'Ð', 'Ƶ'];
 export const ARROWS = SYMBOLS.slice(0, 4);
-export const DEFAULTS = Object.freeze({ length: 8, showMs: 10_000, inputMs: 15_000 });
+export const DEFAULTS = Object.freeze({ length: 8, showMs: 10_000, inputMs: 20_000 });
 
 export function randomInt(max) {
   const limit = Math.floor(0x100000000 / max) * max;
