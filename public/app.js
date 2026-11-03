@@ -1,349 +1,306 @@
-import { SYMBOLS, DEFAULTS } from './game.js';
-import { Adventure, DIGITS } from './adventure.js';
+import { SYMBOLS } from './game.js';
+import { DIGITS } from './adventure.js';
 import { renderField } from './field.js';
-import { Link, createRoom, ROOM_PATTERN } from './link.js';
+import { ROOM_PATTERN } from './link.js';
+import { randomToken } from './identity.js';
+import { detectLocal, SocketConnection, BrowserConnection } from './transport.js';
 
 const $ = id => document.getElementById(id);
+const text = (id, value) => { const node = $(id); if (node.textContent !== String(value)) node.textContent = value; };
+const show = (id, visible) => { $(id).hidden = !visible; };
 const params = new URLSearchParams(location.search);
 let role = params.get('view') || 'home';
 let room = (params.get('room') || '').toUpperCase();
-const local = params.get('transport') === 'local';
-let link, connected = false, ready = false, lastSeen = 0, previousPhase = '', pending = false, command = 0;
-let phoneState = null, phoneReceivedAt = 0, lastCommand = 0, wakeLock;
-const trial = new Adventure();
-let clientId;
-try { clientId = sessionStorage.getItem('bombarcade-client') || crypto.randomUUID(); sessionStorage.setItem('bombarcade-client', clientId); }
-catch { clientId = crypto.randomUUID(); }
+const demo = params.get('transport') === 'local';
+const joinKey = params.get('key') || '';
+const isLocal = !demo && await detectLocal();
+let connection, state, receivedAt = 0, online = false, previousPhase = '', settingsLoaded = false;
+let links = [], selectedUrl = '', alertSeen = 0, warningUntil = 0, command = 0, wakeLock;
+const stream = randomToken(16), inFlight = new Map();
 
-function route(view, code = '', demo = false) {
-  const url = new URL(location.href);
-  url.search = ''; url.hash = '';
+function route(view, code = '', key = '') {
+  const url = new URL(location.href); url.search = ''; url.hash = '';
   url.searchParams.set('view', view);
   if (code) url.searchParams.set('room', code);
+  if (key) url.searchParams.set('key', key);
   if (demo) url.searchParams.set('transport', 'local');
   return url;
 }
-function setText(id, text) { if ($(id).textContent !== text) $(id).textContent = text; }
-function show(id, visible) { $(id).hidden = !visible; }
-function announce(text) { setText('announcement', text); }
-function connection(id, text, good = false) { setText(id, text); $(id).classList.toggle('online', good); }
-function leftSeconds(ms) { return Math.max(0, Math.ceil(ms / 1000)).toString().padStart(2, '0'); }
-function vibrate(pattern) { try { navigator.vibrate?.(pattern); } catch {} }
+function status(id, message, good) { text(id, message); $(id).classList.toggle('online', !!good); }
+function remaining() { return state ? Math.max(0, state.remainingMs - (state.paused ? 0 : performance.now() - receivedAt)) : 0; }
+function seconds(ms) { return String(Math.ceil(ms / 1000)).padStart(2, '0'); }
+function active(s = state) { return s && ['show', 'input', 'transition', 'explore'].includes(s.stage); }
+function sendMaster(action, extra = {}) { connection?.send({ t: 'master', action, ...extra }); }
+function notify(message) { text('announcement', message); }
 
-let soundEnabled = false, audio;
+let sound = false, audio;
 function beep(kind = 'key') {
-  if (!soundEnabled) return;
+  if (!sound) return;
   try {
-    audio ||= new (window.AudioContext || window.webkitAudioContext)();
-    if (audio.state === 'suspended') audio.resume();
+    audio ||= new (window.AudioContext || window.webkitAudioContext)(); audio.resume();
     const oscillator = audio.createOscillator(), gain = audio.createGain();
-    oscillator.type = 'sine'; oscillator.frequency.value = { key: 750, input: 980, failure: 140, success: 1200, show: 540 }[kind] || 600;
-    gain.gain.setValueAtTime(.07, audio.currentTime);
-    gain.gain.exponentialRampToValueAtTime(.001, audio.currentTime + .16);
-    oscillator.connect(gain); gain.connect(audio.destination);
-    oscillator.start(); oscillator.stop(audio.currentTime + .17);
+    oscillator.frequency.value = { failure: 130, lost: 100, success: 1100, show: 540, key: 760 }[kind] || 600;
+    gain.gain.setValueAtTime(.045, audio.currentTime); gain.gain.exponentialRampToValueAtTime(.001, audio.currentTime + .16);
+    oscillator.connect(gain); gain.connect(audio.destination); oscillator.start(); oscillator.stop(audio.currentTime + .17);
   } catch {}
 }
-$('sound').onclick = () => {
-  soundEnabled = !soundEnabled;
-  $('sound').setAttribute('aria-pressed', String(soundEnabled));
-  $('sound').textContent = `Звук: ${soundEnabled ? 'вкл.' : 'выкл.'}`; beep();
-};
-$('fullscreen').onclick = async () => {
-  try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); }
-  catch { announce('Полноэкранный режим недоступен в этом браузере.'); }
-};
-if (!document.documentElement.requestFullscreen) $('fullscreen').hidden = true;
+$('sound').onclick = () => { sound = !sound; $('sound').setAttribute('aria-pressed', sound); text('sound', `Звук: ${sound ? 'вкл.' : 'выкл.'}`); beep(); };
+let reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+try { reduced = localStorage.getItem('bombarcade-effects') === 'reduced' || reduced; } catch {}
+function applyEffects() { document.body.classList.toggle('reduced-effects', reduced); $('effects').setAttribute('aria-pressed', reduced); }
+applyEffects();
+$('effects').onclick = () => { reduced = !reduced; applyEffects(); try { localStorage.setItem('bombarcade-effects', reduced ? 'reduced' : 'full'); } catch {} };
+$('fullscreen').onclick = async () => { try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch { notify('Полноэкранный режим недоступен.'); } };
+show('fullscreen', !!document.documentElement.requestFullscreen);
 $('create').onclick = () => location.assign(route('host'));
-$('demo').onclick = () => location.assign(route('host', '', true));
-$('join-form').onsubmit = e => {
-  e.preventDefault(); const code = $('room-input').value.trim().toUpperCase();
-  if (ROOM_PATTERN.test(code)) location.assign(route('phone', code));
-};
-$('room-input').oninput = e => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); };
+$('demo').onclick = () => { const url = route('host'); url.searchParams.set('transport', 'local'); location.assign(url); };
+$('join-form').onsubmit = event => { event.preventDefault(); const code = $('room-input').value.trim().toUpperCase(); if (ROOM_PATTERN.test(code)) location.assign(route('phone', code, $('join-key').value.trim())); };
+$('room-input').oninput = event => { event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); };
+text('transport-description', isLocal ? 'Корабельный сервер в локальной сети. Подключи компьютер и телефон к одному роутеру: игра работает без интернета.' : 'Наблюдатель видит код и карту. Оператор управляет с телефона. Интернет-режим соединяет устройства через ретранслятор.');
+show('join-key', isLocal); show('join-key-label', isLocal);
 
-const phaseCopy = {
-  lobby: ['ОЖИДАНИЕ ОПЕРАТОРА', 'Канал управления закрыт'],
-  show: ['СЧИТЫВАНИЕ / 10 СЕКУНД', 'Передай последовательность'],
-  input: ['ВВОД / 20 СЕКУНД', 'Оператор, вводи код'],
-  success: ['ПРОТОКОЛ ПОДТВЕРЖДЁН', 'Первый шлюз открыт'],
-  failure: ['ПРОТОКОЛ ОТКЛОНЁН', 'Попытка прервана'],
-  transition: ['ПРОТОКОЛ I ПОДТВЕРЖДЁН', 'Переход к поиску узла'],
-  explore: ['ПОИСК / ОБЗОР 2 ГЕКСА', 'Найди узел ◇'],
+function updateLink() {
+  const item = links[Number($('address-select').value) || 0];
+  selectedUrl = item?.url || '';
+  $('phone-link').href = selectedUrl || '#'; text('phone-link', selectedUrl);
+  const qr = window.qrcode?.(0, 'M');
+  $('qr').replaceChildren();
+  if (qr && selectedUrl) { qr.addData(selectedUrl); qr.make(); $('qr').innerHTML = qr.createSvgTag({ cellSize: 5, margin: 12, scalable: true }); }
+  show('qr', !!selectedUrl && !demo);
+}
+$('address-select').onchange = updateLink;
+$('phone-link').onclick = event => { if (demo) { event.preventDefault(); window.open(selectedUrl, '_blank', 'popup,width=430,height=850,noopener'); } };
+$('copy-link').onclick = async () => {
+  if (!selectedUrl) return;
+  let ok = false;
+  try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(selectedUrl); ok = true; } } catch {}
+  if (!ok) {
+    const area = document.createElement('textarea'); area.value = selectedUrl; area.style.cssText = 'position:fixed;left:-9999px'; document.body.append(area); area.select();
+    try { ok = document.execCommand('copy'); } catch {} area.remove();
+  }
+  text('copy-link', ok ? 'Ссылка скопирована' : 'Выдели и скопируй ссылку выше');
 };
-function sequence(container, symbols, entered = []) {
-  const signature = symbols.join('') + '/' + entered.join('');
-  if (container.dataset.signature === signature) return;
-  container.dataset.signature = signature;
-  container.replaceChildren(...symbols.map((s, i) => {
+function welcome(m) {
+  room = m.room; text('room-code', room); text('toolbar-room', room); text('phone-room', room);
+  history.replaceState(null, '', route(role, room, role === 'phone' ? joinKey : ''));
+  if (role !== 'host') return;
+  const oldUrl = selectedUrl; links = m.links || [];
+  $('address-select').replaceChildren(...links.map((item, i) => {
+    const option = document.createElement('option'); option.value = i;
+    option.textContent = `${item.name}${item.address ? ' · ' + item.address : ''}${item.recommended ? ' · рекомендуется' : ''}${item.virtual ? ' · виртуальный адаптер' : ''}`;
+    return option;
+  }));
+  const oldIndex = links.findIndex(item => item.url === oldUrl); if (oldIndex >= 0) $('address-select').value = oldIndex;
+  updateLink(); show('address-select', links.length > 1); show('address-label', links.length > 1);
+  text('lobby-instructions', demo ? 'Открой консоль в отдельном окне этого браузера. Держи оба окна видимыми.' : isLocal ? 'Компьютер и телефон должны быть доступны друг другу через один роутер. Отсканируй QR-код.' : 'Отсканируй QR-код или введи код сеанса на этом же сайте.');
+  text('network-help', isLocal ? links.length ? 'Если страница не открывается: выбери другой сетевой адрес и разреши Node.js в брандмауэре для частной сети.' : 'Сетевой адрес не найден. Подключи компьютер к роутеру и перезапусти сервер.' : demo ? 'Проверка в одном браузере · BroadcastChannel' : 'Интернет-режим · HTTPS-ретранслятор');
+}
+
+const phases = { lobby: 'ОЖИДАНИЕ', show: 'СЧИТЫВАНИЕ', input: 'ВВОД КОДА', explore: 'ЗОНД АКТИВЕН', transition: 'ПЕРЕХОД', failure: 'СБОЙ', lost: 'ДОСТУП ЗАКРЫТ', success: 'ПОДТВЕРЖДЕНО' };
+function validState(s) {
+  if (!s || !Object.hasOwn(phases, s.stage) || ![1, 2].includes(s.protocol) || typeof s.paused !== 'boolean' || !Number.isFinite(s.remainingMs) || !Number.isFinite(s.durationMs) || !Number.isInteger(s.round) || !Number.isInteger(s.layoutVersion)) return false;
+  if (role === 'host') return Array.isArray(s.nodes) && Array.isArray(s.viruses) && Array.isArray(s.sequence);
+  const symbols = s.protocol === 2 ? DIGITS : SYMBOLS;
+  return Array.isArray(s.layout) && s.layout.length === symbols.length && new Set(s.layout).size === symbols.length && s.layout.every(k => symbols.includes(k)) && Array.isArray(s.entered) && s.entered.length <= s.length && s.entered.every(k => symbols.includes(k));
+}
+function receive(m) {
+  if (m.t === 'welcome') welcome(m);
+  if (m.t === 'ack') {
+    if (m.cumulative) for (const n of inFlight.keys()) { if (n <= m.n) inFlight.delete(n); }
+    else inFlight.delete(m.n);
+    render();
+  }
+  if (m.t === 'result') {
+    text('host-error', m.ok ? '' : m.message || 'Команда сейчас недоступна.');
+    if (m.action === 'settings' && m.ok) { settingsLoaded = false; text('settings-note', 'Настройки применены. Новая расстановка создаётся при запуске поиска.'); }
+  }
+  if (m.t !== 'state' || !validState(m.s)) return;
+  if (state && (m.s.round < state.round || m.s.round === state.round && m.s.layoutVersion < state.layoutVersion)) return;
+  if (state && m.s.round !== state.round) inFlight.clear();
+  state = m.s; receivedAt = performance.now();
+  render();
+}
+function networkStatus(statusName, message = '') {
+  online = ['connected', 'ready'].includes(statusName);
+  if (!online) inFlight.clear();
+  if (role === 'host') text('host-error', message);
+  else { text('phone-error', message); show('reconnect-phone', ['disconnected', 'error'].includes(statusName)); }
+  render();
+}
+function createConnection() {
+  connection?.close(); inFlight.clear(); online = false;
+  const options = { role, room, joinKey, demo, onMessage: receive, onStatus: networkStatus };
+  connection = isLocal ? new SocketConnection(options) : new BrowserConnection(options);
+}
+
+function sequence(symbols) {
+  const node = $('sequence'), signature = symbols.join(',');
+  if (node.dataset.signature === signature) return;
+  node.dataset.signature = signature;
+  node.style.setProperty('--tiles', Math.min(symbols.length, 8));
+  node.replaceChildren(...symbols.map((symbol, i) => {
     const tile = document.createElement('div'); tile.className = 'sequence-tile';
-    if (entered.length > i) tile.classList.add(entered[i] === s ? 'accepted' : 'wrong');
-    const symbol = document.createElement('span'); symbol.textContent = s;
-    const index = document.createElement('small'); index.textContent = String(i + 1).padStart(2, '0');
-    tile.append(symbol, index); return tile;
+    const glyph = document.createElement('span'); glyph.textContent = symbol;
+    const index = document.createElement('small'); index.textContent = String(i + 1).padStart(2, '0'); tile.append(glyph, index); return tile;
   }));
 }
-function progress(container, count, entered, characters = false) {
-  const signature = count + ':' + entered.join('') + ':' + characters;
-  if (container.dataset.signature === signature) return;
-  container.dataset.signature = signature;
-  container.replaceChildren(...Array.from({ length: count }, (_, i) => {
-    const slot = document.createElement('span'); slot.className = 'progress-slot';
-    slot.classList.toggle('filled', i < entered.length);
-    slot.textContent = i < entered.length ? (characters ? entered[i] : '◆') : '·';
-    return slot;
+function progress(id, count, entered, reveal = false) {
+  const node = $(id), signature = `${count}/${entered.join(',')}/${reveal}`;
+  if (node.dataset.signature === signature) return;
+  node.dataset.signature = signature;
+  node.replaceChildren(...Array.from({ length: count }, (_, i) => {
+    const slot = document.createElement('span'); slot.className = 'progress-slot' + (i < entered.length ? ' filled' : '');
+    slot.textContent = i < entered.length ? reveal ? entered[i] : '◆' : '·'; return slot;
   }));
 }
-function sendState(ack) { link?.send({ kind: 'state', state: trial.controllerState(), ack: ack ?? lastCommand }); }
+const reasons = { caught: 'Зонд захвачен вирусом.', timeout: 'Время на ввод истекло.', symbol: 'Введён неверный символ.' };
+function attemptLabel(s) { return s.protocol === 2 ? `ПОПЫТКА ${s.attempt} / ${s.attemptsTotal}` : 'ПРОТОКОЛ I / МНЕМОНИЧЕСКИЙ ШЛЮЗ'; }
+function phaseEffects() {
+  const signature = `${state.round}:${state.stage}`;
+  document.body.dataset.stage = state.stage; document.body.dataset.protocol = state.protocol; document.body.dataset.paused = state.paused;
+  if (signature !== previousPhase) {
+    previousPhase = signature; notify(phases[state.stage]); beep(state.stage);
+    if (['failure', 'lost'].includes(state.stage)) {
+      document.body.classList.remove('defeat-flash'); void document.body.offsetWidth; document.body.classList.add('defeat-flash');
+      try { navigator.vibrate?.([80, 40, 120]); } catch {}
+    }
+  }
+  const alert = role === 'host' ? state.alert : state.alarm;
+  if (alert < alertSeen) { alertSeen = alert; warningUntil = 0; }
+  if (alert > alertSeen) { alertSeen = alert; warningUntil = performance.now() + 3000; }
+}
 function renderHost() {
-  const stage = trial.stage, second = trial.protocol === 2;
-  document.body.dataset.stage = stage;
-  document.body.dataset.protocol = String(trial.protocol);
-  document.body.dataset.paused = String(trial.paused);
-  let [phase, title] = phaseCopy[stage];
-  if (second && stage === 'show') title = 'Узел найден: запомни цифры';
-  if (second && stage === 'input') title = 'Передавай код по памяти';
-  if (second && stage === 'success') title = 'Оба протокола подтверждены';
-  setText('protocol-title', second ? 'ПРОТОКОЛ II · ПОИСК УЗЛА' : 'ПРОТОКОЛ I · МНЕМОНИЧЕСКИЙ ШЛЮЗ');
-  setText('host-phase', phase); setText('host-title', title);
-  setText('attempt', 'ПОПЫТКА ' + String(trial.round).padStart(2, '0'));
-  const timed = ['show','input'].includes(stage), remaining = trial.remaining();
-  setText('host-timer', timed ? leftSeconds(remaining) : '—');
-  setText('host-timer-label', trial.paused ? 'ПАУЗА' : timed ? stage === 'show' ? 'СЧИТЫВАНИЕ' : 'ВВОД' : stage === 'explore' ? 'БЕЗ ТАЙМЕРА' : 'ДО ЗАПУСКА');
-  $('host-timer-bar').style.width = (timed ? remaining / (stage === 'show' ? DEFAULTS.showMs : DEFAULTS.inputMs) * 100 : 0) + '%';
-  $('host-timer').classList.toggle('urgent', stage === 'input' && remaining < 5000 && !trial.paused);
-  show('lobby-content', stage === 'lobby'); show('sequence-zone', stage === 'show'); show('input-zone', stage === 'input');
-  show('transition-zone', stage === 'transition');
-  show('field-zone', second && ['explore','show','input'].includes(stage));
-  show('result-zone', stage === 'success' || stage === 'failure'); show('host-paused', trial.paused);
-  if (second && ['explore','show','input'].includes(stage)) {
-    renderField($('field'), trial);
-    setText('field-contact', trial.contact);
-    setText('probe-position', 'ЗОНД ' + String(trial.position.col + 1).padStart(2,'0') + ':' + String(trial.position.row + 1).padStart(2,'0'));
+  status('host-connection', online ? state?.link.phone ? 'Телефон подключён' : 'Ожидание телефона' : 'Нет связи с сервером', online && state?.link.phone);
+  if (!state) return;
+  const { stage, protocol, paused } = state, second = protocol === 2, timed = ['show', 'input'].includes(stage), ms = remaining();
+  phaseEffects();
+  text('protocol-title', second ? 'ПРОТОКОЛ II / ПОИСК УЗЛА' : 'ПРОТОКОЛ I / МНЕМОНИЧЕСКИЙ ШЛЮЗ');
+  text('host-phase', paused ? 'ПАУЗА' : phases[stage]); text('attempt', attemptLabel(state) + (second ? ` · ОСТАЛОСЬ ${state.attemptsLeft}` : ''));
+  const titles = { lobby: 'Ожидание оператора', show: second ? 'Целевой узел найден: запомни цифры' : 'Запомни последовательность стрелок', input: 'Передавай код по памяти', explore: 'Цель: янтарный ромб ◇', transition: 'Первый шлюз открыт', failure: 'Попытка прервана', lost: 'Три попытки исчерпаны', success: 'Доступ подтверждён' };
+  text('host-title', titles[stage]); text('host-timer', timed ? seconds(ms) : '—');
+  text('host-timer-label', paused ? 'ПАУЗА' : timed ? `${stage === 'show' ? 'ПОКАЗ' : 'ВВОД'} / ${state.durationMs / 1000} СЕК.` : stage === 'explore' ? 'ОБЗОР / 2 ГЕКСА' : 'ДО ЗАПУСКА');
+  $('host-timer-bar').style.width = `${timed ? Math.min(100, ms / state.durationMs * 100) : 0}%`;
+  $('host-timer').classList.toggle('urgent', stage === 'input' && ms < 5000 && !paused);
+  show('lobby-content', stage === 'lobby'); show('sequence-zone', stage === 'show'); show('input-zone', stage === 'input'); show('transition-zone', stage === 'transition');
+  show('field-zone', second && ['explore', 'show', 'input'].includes(stage)); show('result-zone', ['failure', 'lost', 'success'].includes(stage));
+  sequence(stage === 'show' ? state.sequence : []);
+  if (stage === 'input') progress('host-progress', state.length, state.entered);
+  if (second && ['explore', 'show', 'input'].includes(stage)) {
+    renderField($('field'), state); text('field-contact', state.contact); text('probe-position', `ЗОНД ${String(state.position.col + 1).padStart(2, '0')}:${String(state.position.row + 1).padStart(2, '0')}`);
   }
-  $('sequence').setAttribute('aria-label', second ? 'Цифровой код узла' : 'Последовательность стрелок');
-  if (stage === 'show') sequence($('sequence'), trial.sequence);
-  else { $('sequence').replaceChildren(); delete $('sequence').dataset.signature; }
-  if (stage === 'input') progress($('host-progress'), trial.config.length, trial.entered);
-  if (stage === 'success' || stage === 'failure') {
-    const success = stage === 'success';
-    setText('result-mark', success ? '✓' : '×');
-    setText('result-title', success ? 'Два протокола пройдены' : second ? 'Код узла отклонён' : 'Сбой последовательности');
-    setText('result-text', success ? 'Доступ подтверждён. Дальнейшие действия определяет мастер.' : trial.reason === 'timeout' ? 'Время на ввод истекло. Мастер может повторить этап.' : 'Введён неверный символ. Мастер может повторить этап.');
-    sequence($('result-sequence'), trial.sequence, trial.entered);
+  if (['failure', 'lost', 'success'].includes(stage)) {
+    text('result-mark', stage === 'success' ? '✓' : '×'); text('result-title', stage === 'success' ? 'Оба протокола подтверждены' : stage === 'lost' ? 'Доступ окончательно закрыт' : 'Попытка прервана');
+    text('result-text', stage === 'success' ? 'Система разблокирована. Дальнейшие действия определяет мастер.' : (reasons[state.reason] || 'Протокол отклонён.') + (stage === 'lost' ? ' Новый полный запуск доступен в панели мастера.' : ' Повтор запускает мастер.'));
+    text('result-attempts', second && stage !== 'success' ? `ОСТАЛОСЬ ПОПЫТОК: ${state.attemptsLeft} / ${state.attemptsTotal}` : '');
   }
-  setText('pause-explanation', trial.pauseReason === 'connection' ? 'Связь с телефоном потеряна. После подключения нажми «Продолжить».' : trial.pauseReason === 'hidden' ? 'Большой экран был свёрнут. Нажми «Продолжить», когда оба оператора готовы.' : 'Мастер поставил испытание на паузу.');
-  $('start').disabled = !connected || !ready || trial.active();
-  setText('start', second ? stage === 'success' ? 'Начать оба этапа заново' : 'Повторить поиск узла' : trial.round ? 'Новая попытка' : 'Начать испытание');
-  $('length').disabled = trial.active(); show('length-control', !second);
-  $('pause').disabled = !trial.active() || (trial.paused && !connected);
-  setText('pause', trial.paused ? 'Продолжить' : 'Пауза');
-  setText('host-status', stage === 'input' ? 'Принято символов: ' + trial.entered.length + ' / ' + trial.config.length : second ? 'Поиск узла / блок 02' : 'Доступ к устройству / блок 01');
-  const signature = trial.protocol + ':' + stage;
-  if (signature !== previousPhase) { previousPhase = signature; announce(title); if (stage !== 'lobby') beep(stage); }
-}
-function hostMessage(msg) {
-  if (!msg || typeof msg !== 'object') return;
-  if (msg.kind === 'hello' || msg.kind === 'ping' || msg.kind === 'key' || msg.kind === 'move') {
-    lastSeen = performance.now();
-    connected = true;
-    connection('host-connection', 'Телефон подключён', true);
-    setText('host-error', '');
-  }
-  if (msg.kind === 'hello') { lastCommand = 0; sendState(); }
-  if (msg.kind === 'ping') sendState();
-  if (msg.kind === 'key' || msg.kind === 'move') {
-    if (!Number.isSafeInteger(msg.command) || msg.command <= lastCommand) { sendState(msg.command); return; }
-    lastCommand = msg.command;
-    const accepted = trial.press(msg);
-    if (accepted && trial.stage === 'input') beep('key');
-    sendState(msg.command); renderHost();
-  }
-}
-function hostStatus(status, error = '') {
-  if (status === 'ready') { ready = true; connection('host-connection', connected ? 'Телефон подключён' : 'Ожидание телефона', connected); setText('host-error', ''); }
-  if (status === 'connected') { connected = true; lastSeen = performance.now(); connection('host-connection', 'Телефон подключён', true); sendState(); }
-  if (status === 'disconnected' || status === 'error') {
-    connected = false; trial.pause('connection'); connection('host-connection', 'Нет связи с телефоном');
-    setText('host-error', error); show('reconnect-host', status === 'error' && !link?.conn?.open); sendState();
-  }
-  renderHost();
-}
-function initHost() {
-  if (!ROOM_PATTERN.test(room)) room = createRoom();
-  history.replaceState(null, '', route('host', room, local));
-  setText('room-code', room); show('demo-label', local);
-  const phoneUrl = route('phone', room, local);
-  $('phone-link').href = phoneUrl;
-  if (local) {
-    setText('lobby-instructions', 'Открой консоль в отдельном окне этого браузера. Поставь два окна рядом: свёрнутый большой экран останавливает таймер.');
-    setText('phone-link', 'Открыть консоль в отдельном окне'); show('qr', false);
-    $('phone-link').onclick = e => { e.preventDefault(); window.open(phoneUrl.href, '_blank', 'popup,width=430,height=850,noopener'); };
-  } else {
-    const qr = window.qrcode?.(0, 'M');
-    if (qr) { qr.addData(phoneUrl.href); qr.make(); $('qr').innerHTML = qr.createSvgTag({ cellSize: 5, margin: 12, scalable: true }); }
-    else setText('qr', 'Введи код сеанса на телефоне');
-  }
-  const connect = () => {
-    link?.close(); connected = false; ready = false;
-    connection('host-connection', 'Создание канала…'); show('reconnect-host', false);
-    link = new Link({ role: 'host', room, local, onMessage: hostMessage, onStatus: hostStatus });
-  };
-  connect(); $('reconnect-host').onclick = connect;
-  $('copy-link').onclick = async () => {
-    try { await navigator.clipboard.writeText(phoneUrl.href); setText('copy-link', 'Ссылка скопирована'); }
-    catch { setText('host-error', 'Скопируй адрес через ссылку «Открыть телефонную консоль».'); }
-  };
-  $('start').onclick = () => { if (!connected || !ready || trial.active()) return; trial.start({ length: $('length').value }); sendState(); renderHost(); };
-  $('pause').onclick = () => {
-    if (trial.paused && connected) trial.resume(); else trial.pause();
-    sendState(); renderHost();
-  };
-  renderHost();
+  show('host-paused', paused || !online && active());
+  text('pause-explanation', !online ? 'Связь с локальным сервером прервана. Ожидаем переподключения.' : state.pauseReason === 'connection' ? 'Телефон отключился. После восстановления связи нажми «Продолжить».' : state.pauseReason === 'host' ? 'Большой экран переподключился. Продолжи испытание, когда оба оператора готовы.' : 'Таймер и вирусы остановлены.');
+  $('start').disabled = !online || !state.link.phone || active() || ['lost', 'success'].includes(stage);
+  text('start', stage === 'failure' ? second ? 'Повторить этап' : 'Повторить испытание' : 'Начать испытание');
+  $('pause').disabled = !online || !active() || paused && !state.link.phone; text('pause', paused ? 'Продолжить' : 'Пауза');
+  $('retry').disabled = !online || !state.link.phone || !second || stage !== 'failure';
+  $('restart').disabled = !online; $('release-phone').disabled = !online || !state.link.claimed;
+  show('release-phone', isLocal); $('length').disabled = active();
+  const settingsDisabled = !online || second && active();
+  for (const id of ['virus-count', 'virus-speed', 'save-settings']) $(id).disabled = settingsDisabled;
+  if (!settingsLoaded) { $('virus-count').value = state.virusConfig.count; $('virus-speed').value = state.virusConfig.stepMs; settingsLoaded = true; }
+  show('virus-warning', performance.now() < warningUntil && stage === 'explore' && !paused);
+  const rtt = state.link.rtt === null || state.link.rtt === undefined ? '—' : `${state.link.rtt} МС`;
+  text('host-status', `ДИАГНОСТИКА: ЗОНД-712  //  ${second ? `ПОПЫТКА ${state.attempt}/3` : 'MNEMO-01'}  //  ШУМ: НОРМА  //  КАНАЛ: ${isLocal ? 'ЛОКАЛЬНЫЙ' : demo ? 'ПРОВЕРКА' : 'ИНТЕРНЕТ'}  //  RTT: ${rtt}  //  ${paused ? 'ПАУЗА' : phases[stage]}`);
 }
 
-const keypadButtons = Array.from({ length: 10 }, (_, i) => {
-  const key = document.createElement('button'); key.className = 'key'; key.type = 'button'; key.disabled = true;
-  const symbol = document.createElement('span'), index = document.createElement('small'); index.textContent = `0${i + 1}`;
-  key.append(symbol, index);
-  key.onclick = () => press(key.dataset.symbol);
-  return key;
-});
-$('keypad').append(...keypadButtons);
-const moveButtons = [...document.querySelectorAll('[data-direction]')];
-moveButtons.forEach(key => { key.onclick = () => press(key.dataset.direction, 'move'); });
-const labels = { '↑': 'Вверх', '↓': 'Вниз', '←': 'Влево', '→': 'Вправо' };
-function press(symbol, kind = 'key') {
-  if (!connected || pending || !phoneState || phoneState.paused || (kind === 'move' ? phoneState.stage !== 'explore' : phoneState.stage !== 'input' || phoneRemaining() <= 0)) return;
-  pending = true; command++;
-  const sent = link.send({ kind, symbol, round: phoneState.round, layoutVersion: phoneState.layoutVersion, command });
-  if (!sent) { pending = false; phoneStatus('disconnected', 'Команда не отправлена. Восстанови связь.'); return; }
-  beep(); vibrate(12); renderPhone();
+function feedback(button) {
+  button.classList.remove('pressed'); void button.offsetWidth; button.classList.add('pressed'); setTimeout(() => button.classList.remove('pressed'), 170);
 }
-function phoneRemaining() {
-  if (!phoneState) return 0;
-  return Math.max(0, phoneState.remainingMs - (phoneState.paused ? 0 : performance.now() - phoneReceivedAt));
+function bindKey(button, callback) {
+  button.addEventListener('pointerdown', event => { if (event.button !== 0 || button.disabled) return; event.preventDefault(); feedback(button); callback(); });
+  button.addEventListener('click', event => { if (event.detail === 0 && !button.disabled) { feedback(button); callback(); } });
+}
+const keys = Array.from({ length: 10 }, () => {
+  const key = document.createElement('button'); key.className = 'key'; key.type = 'button'; key.disabled = true;
+  const span = document.createElement('span'); key.append(span); bindKey(key, () => press(key.dataset.symbol)); return key;
+});
+$('keypad').append(...keys);
+const moves = [...document.querySelectorAll('[data-direction]')];
+for (const key of moves) bindKey(key, () => press(key.dataset.direction, 'move'));
+function press(symbol, kind = 'key') {
+  if (!online || !state || state.paused || !state.link.host) return;
+  if (kind === 'move' ? state.stage !== 'explore' || inFlight.size >= 3 : state.stage !== 'input' || remaining() <= 0 || inFlight.size > 0) return;
+  const n = ++command; inFlight.set(n, performance.now());
+  const sent = connection.send({ t: 'cmd', stream, n, kind, symbol, round: state.round, layoutVersion: state.layoutVersion });
+  if (!sent) { inFlight.delete(n); networkStatus('disconnected', 'Команда не отправлена. Восстанавливаем связь.'); }
+  else { beep(); try { navigator.vibrate?.(10); } catch {} }
+  renderPhone();
 }
 function renderPhone() {
-  const state = phoneState, stage = state?.stage || 'lobby', second = state?.protocol === 2;
-  document.body.dataset.stage = stage;
-  document.body.dataset.protocol = second ? '2' : '1';
-  document.body.dataset.paused = String(!!state?.paused);
-  const seconds = phoneRemaining(), timed = ['show','input'].includes(stage);
-  setText('phone-protocol', second ? 'INPUT / NODUS-02' : 'INPUT / MNEMO-01');
-  setText('phone-timer', state && timed ? leftSeconds(seconds) : '—');
-  $('phone-timer').classList.toggle('urgent', stage === 'input' && seconds < 5000 && !state?.paused);
-  const blocked = !connected || !state || state.paused || stage !== 'input' || seconds <= 0;
+  const stage = state?.stage || 'lobby', second = state?.protocol === 2, timed = ['show', 'input'].includes(stage), ms = remaining();
+  const linked = online && state?.link.host;
+  status('phone-connection', linked ? 'КАНАЛ АКТИВЕН' : 'НЕТ СВЯЗИ', linked);
+  if (state) phaseEffects();
+  text('phone-protocol', second ? 'NODUS / 02' : 'MNEMO / 01'); text('phone-phase', state?.paused ? 'ПАУЗА' : phases[stage]);
+  text('phone-attempt', state ? second ? `${attemptLabel(state)} · ОСТ. ${state.attemptsLeft}` : 'ПРОТОКОЛ I' : '');
+  text('phone-timer', timed ? seconds(ms) : '—'); $('phone-timer').classList.toggle('urgent', stage === 'input' && ms < 5000 && !state?.paused);
+  $('phone-timer-bar').style.width = `${timed && state ? Math.min(100, ms / state.durationMs * 100) : 0}%`;
+  const controls = linked && !state.paused;
   const layout = state?.layout || SYMBOLS;
-  show('movement', second && stage === 'explore');
-  show('keypad', stage !== 'transition' && !(second && stage === 'explore'));
-  show('phone-progress', !(second && stage === 'explore') && stage !== 'transition');
-  show('phone-transition', stage === 'transition');
-  $('keypad').classList.toggle('numeric', second);
-  keypadButtons.forEach((key, i) => {
+  show('movement', second && stage === 'explore'); show('phone-radar', stage === 'explore' || stage === 'lobby');
+  show('keypad', ['show', 'input'].includes(stage)); show('phone-progress', ['show', 'input'].includes(stage)); show('phone-transition', stage === 'transition');
+  $('keypad').classList.toggle('numeric', second); $('keypad').setAttribute('aria-label', second ? 'Цифровая клавиатура' : 'Клавиатура 3 на 3');
+  keys.forEach((key, i) => {
     const symbol = layout[i]; key.hidden = symbol === undefined;
-    if (symbol === undefined) { key.disabled = true; return; }
-    key.firstChild.textContent = symbol; key.dataset.symbol = symbol;
-    key.classList.toggle('glyph', !second && !labels[symbol]);
-    key.setAttribute('aria-label', second ? 'Цифра ' + symbol : labels[symbol] || 'Глиф ' + symbol);
-    key.disabled = blocked || pending;
+    key.firstChild.textContent = symbol || ''; key.dataset.symbol = symbol || '';
+    key.setAttribute('aria-label', second ? 'Цифра ' + symbol : ({ '↑': 'Вверх', '↓': 'Вниз', '←': 'Влево', '→': 'Вправо' }[symbol] || 'Глиф ' + symbol));
+    key.disabled = !controls || stage !== 'input' || ms <= 0 || inFlight.size > 0;
   });
-  moveButtons.forEach(key => { key.disabled = !connected || !state || state.paused || stage !== 'explore' || pending; });
-  progress($('phone-progress'), state?.length || 8, state?.entered || [], true);
-  setText('phone-counter', second && stage === 'explore' ? 'ЗОНД / УПРАВЛЕНИЕ' : String(state?.entered.length || 0).padStart(2,'0') + ' / ' + String(state?.length || 8).padStart(2,'0'));
-  let title = 'Ожидание запуска', instruction = 'Когда оба игрока готовы, мастер запускает испытание на большом экране.', phase = 'ОЖИДАНИЕ';
-  if (!connected) { title = 'Нет связи с кораблём'; instruction = 'Оставь большой экран открытым и восстанови подключение.'; phase = 'НЕТ СВЯЗИ'; }
-  else if (state?.paused) { title = 'Протокол на паузе'; instruction = 'Продолжение запускается на большом экране.'; phase = 'ПАУЗА'; }
-  else if (stage === 'transition') { title = 'Первый шлюз открыт'; instruction = 'Подключение к поисковому зонду…'; phase = 'ПЕРЕХОД'; }
-  else if (stage === 'explore') { title = 'Управляй зондом'; instruction = 'Слушай наблюдателя: поле и узлы видны только ему. Одно нажатие — один шаг.'; phase = 'ПОИСК'; }
-  else if (stage === 'show') { title = 'Слушай наблюдателя'; instruction = second ? 'Восемь цифр видны только на телевизоре. Ввод откроется после 10 секунд.' : 'Код виден только на большом экране. Сейчас клавиши заблокированы.'; phase = 'СЧИТЫВАНИЕ'; }
-  else if (stage === 'input') { title = second ? 'Вводи восемь цифр' : 'Вводи последовательность'; instruction = second ? '20 секунд на код узла. Вводи цифры в порядке, который передаёт наблюдатель.' : 'Найди нужную стрелку. После нажатия клавиши переместятся.'; phase = 'ВВОД'; }
-  else if (stage === 'success') { title = 'Оба протокола пройдены'; instruction = 'Дождись указаний мастера.'; phase = 'ПОДТВЕРЖДЕНО'; }
-  else if (stage === 'failure') { title = 'Попытка прервана'; instruction = state.reason === 'timeout' ? 'Время истекло. Новую попытку запускает мастер.' : 'Введён неверный символ. Новую попытку запускает мастер.'; phase = 'ОТКЛОНЕНО'; }
-  setText('phone-title', title); setText('phone-instruction', instruction); setText('phone-phase', phase);
-  setText('key-state', pending ? 'ПЕРЕДАЧА…' : stage === 'explore' && connected && !state?.paused ? 'ДВИЖЕНИЕ РАЗРЕШЕНО' : blocked ? 'КЛАВИШИ ЗАБЛОКИРОВАНЫ' : 'ВВОД РАЗРЕШЁН');
-  setText('phone-help', second ? 'Карта и код остаются на большом экране. Неверная цифра завершает попытку.' : 'После каждого нажатия все клавиши меняют места. Пять глифов служат помехой: вводи только стрелки.');
-  const signature = (second ? 2 : 1) + ':' + stage;
-  if (signature !== previousPhase) {
-    previousPhase = signature; announce(title);
-    if (stage === 'input') { beep('input'); vibrate([30,40,30]); }
-    if (stage === 'failure') { beep('failure'); vibrate([80,60,80]); }
-    if (stage === 'success' || stage === 'transition') { beep('success'); vibrate(60); }
-  }
+  moves.forEach(key => { key.disabled = !controls || stage !== 'explore' || inFlight.size >= 3; });
+  progress('phone-progress', state?.length || 8, state?.entered || [], true);
+  text('phone-counter', stage === 'explore' ? 'ЗОНД / УПРАВЛЕНИЕ' : `${String(state?.entered.length || 0).padStart(2, '0')} / ${String(state?.length || 8).padStart(2, '0')}`);
+  let title = 'Ожидание запуска', instruction = 'Когда оба игрока готовы, мастер запускает испытание на телевизоре.';
+  if (!linked) { title = 'Соединение с кораблём'; instruction = 'Оставь телевизионный экран открытым. Ожидаем подключения.'; }
+  else if (state.paused) { title = 'Система на паузе'; instruction = 'Таймер и угрозы остановлены. Продолжение подтверждает мастер.'; }
+  else if (stage === 'explore') { title = 'Поисковый зонд'; instruction = 'Слушай наблюдателя. Одно нажатие — один шаг.'; }
+  else if (stage === 'show') { title = 'Слушай наблюдателя'; instruction = second ? 'Восемь цифр показаны только на телевизоре. 10 секунд на запоминание.' : 'Стрелки видит только наблюдатель. Клавиши пока заблокированы.'; }
+  else if (stage === 'input') { title = second ? 'Введи код узла' : 'Введи последовательность'; instruction = second ? '40 секунд. Восемь цифр в порядке, который передаёт наблюдатель.' : '20 секунд. После нажатия все девять клавиш меняют места.'; }
+  else if (stage === 'transition') { title = 'Первый шлюз открыт'; instruction = 'Подключение поискового зонда…'; }
+  else if (stage === 'success') { title = 'Доступ подтверждён'; instruction = 'Оба протокола пройдены. Дождись указаний мастера.'; }
+  else if (stage === 'failure' || stage === 'lost') { title = stage === 'lost' ? 'Доступ закрыт' : 'Попытка прервана'; instruction = (reasons[state.reason] || 'Ошибка протокола.') + (second ? ` Осталось попыток: ${state.attemptsLeft} / 3.` : '') + (stage === 'lost' ? ' Новый полный запуск доступен мастеру.' : ' Повтор запускает мастер.'); }
+  text('phone-title', title); text('phone-instruction', instruction);
+  text('key-state', inFlight.size ? 'ПЕРЕДАЧА…' : !controls ? 'УПРАВЛЕНИЕ ЗАКРЫТО' : stage === 'explore' ? 'ДВИЖЕНИЕ РАЗРЕШЕНО' : stage === 'input' ? 'ВВОД РАЗРЕШЁН' : 'ОЖИДАНИЕ');
+  text('phone-help', second ? 'Карта, координаты и цель доступны наблюдателю. Направление узнавай по голосу.' : 'Вводи только стрелки. Остальные пять символов служат помехой.');
+  show('phone-alarm', stage === 'explore' && performance.now() < warningUntil && !state?.paused);
 }
-function validState(s) {
-  const second = s?.protocol === 2, symbols = second ? DIGITS : SYMBOLS;
-  return s && phaseCopy[s.stage] && typeof s.paused === 'boolean' && Number.isFinite(s.remainingMs) &&
-    Number.isInteger(s.round) && Number.isInteger(s.layoutVersion) && s.layout?.length === symbols.length &&
-    new Set(s.layout).size === symbols.length && s.layout.every(k => symbols.includes(k)) &&
-    Number.isInteger(s.length) && (second ? s.length === 8 : s.length >= 4 && s.length <= 12) &&
-    Array.isArray(s.entered) && s.entered.length <= s.length && s.entered.every(k => symbols.includes(k));
-}
-function phoneMessage(msg) {
-  if (msg?.kind === 'busy') { phoneStatus('error', 'К сеансу уже привязана другая консоль. Создай новый сеанс для нового телефона.'); return; }
-  if (msg?.kind !== 'state' || !validState(msg.state)) return;
-  lastSeen = performance.now(); connected = true;
-  if (phoneState && (msg.state.round < phoneState.round || (msg.state.round === phoneState.round && msg.state.layoutVersion < phoneState.layoutVersion))) return;
-  const changed = !phoneState || msg.state.round !== phoneState.round || msg.state.layoutVersion !== phoneState.layoutVersion;
-  if (changed || msg.ack === command) pending = false;
-  phoneState = msg.state; phoneReceivedAt = performance.now();
-  connection('phone-connection', 'Связь установлена', true); setText('phone-error', ''); show('reconnect-phone', false);
-  renderPhone();
-}
-function phoneStatus(status, error = '') {
-  if (status === 'connected') { link?.send({ kind: 'hello' }); connection('phone-connection', 'Синхронизация…'); }
-  if (status === 'connecting') connection('phone-connection', 'Подключение…');
-  if (status === 'error' || status === 'disconnected') {
-    connected = false; pending = false; connection('phone-connection', 'Нет связи');
-    setText('phone-error', error); show('reconnect-phone', true);
-  }
-  renderPhone();
-}
-function initPhone() {
-  if (!ROOM_PATTERN.test(room)) {
-    role = 'home'; setText('home-error', 'Нужен шестизначный код с большого экрана.'); return;
-  }
-  setText('phone-room', room);
-  const connect = () => {
-    link?.close(); connected = false; pending = false; lastSeen = performance.now();
-    setText('phone-error', ''); show('reconnect-phone', false);
-    link = new Link({ role: 'phone', room, local, clientId, onMessage: phoneMessage, onStatus: phoneStatus });
-  };
-  connect(); $('reconnect-phone').onclick = connect;
-  renderPhone();
-}
-
+function render() { if (role === 'host') renderHost(); else if (role === 'phone') renderPhone(); }
+function panel(open) { show('master-panel', open); $('master-toggle').setAttribute('aria-expanded', open); }
+$('master-toggle').onclick = () => panel($('master-panel').hidden); $('master-close').onclick = () => panel(false);
+$('start').onclick = () => { if (!$('start').disabled) sendMaster(state?.protocol === 2 && state.stage === 'failure' ? 'retry' : 'start', { length: Number($('length').value) }); };
+$('pause').onclick = () => { if (!$('pause').disabled) sendMaster(state?.paused ? 'resume' : 'pause'); };
+$('retry').onclick = () => sendMaster('retry'); $('restart').onclick = () => { sendMaster('restart'); panel(false); };
+$('release-phone').onclick = () => sendMaster('release-phone');
+$('save-settings').onclick = () => { if ($('virus-count').reportValidity() && $('virus-speed').reportValidity()) sendMaster('settings', { count: Number($('virus-count').value), stepMs: Number($('virus-speed').value) }); };
+$('reconnect-phone').onclick = createConnection;
+show('wake-phone', !!navigator.wakeLock && window.isSecureContext);
 async function keepAwake() {
-  try {
-    if (!navigator.wakeLock) { setText('wake-phone', 'Отключи автоблокировку в настройках телефона'); return; }
-    wakeLock = await navigator.wakeLock.request('screen');
-    setText('wake-phone', 'Экран останется включённым');
-    wakeLock.addEventListener('release', () => { wakeLock = null; setText('wake-phone', 'Не гасить экран телефона'); });
-  } catch { setText('wake-phone', 'Не удалось отключить автоблокировку'); }
+  try { wakeLock = await navigator.wakeLock.request('screen'); text('wake-phone', 'Экран останется включённым'); wakeLock.addEventListener('release', () => { text('wake-phone', 'Не гасить экран телефона'); }); }
+  catch { text('wake-phone', 'Отключи автоблокировку в настройках телефона'); }
 }
 $('wake-phone').onclick = keepAwake;
-document.addEventListener('visibilitychange', () => {
-  if (role === 'host' && document.hidden) { if (trial.pause('hidden')) { sendState(); renderHost(); } }
-  if (role === 'phone' && !document.hidden) { link?.send({ kind: 'hello' }); if (wakeLock) keepAwake(); }
+document.addEventListener('keydown', event => {
+  if (role !== 'host' || /INPUT|SELECT|TEXTAREA|BUTTON|A/.test(event.target.tagName) || event.repeat) return;
+  if (event.code === 'Space') { event.preventDefault(); $('pause').click(); }
+  if (event.code === 'Enter') { event.preventDefault(); $('start').click(); }
+  if (event.code === 'Escape') panel(false);
 });
-window.addEventListener('pagehide', () => link?.close());
-
-if (role === 'host') initHost(); else if (role === 'phone') initPhone(); else role = 'home';
+document.addEventListener('visibilitychange', () => {
+  if (role === 'host' && document.hidden && active() && !state.paused) sendMaster('pause', { reason: 'hidden' });
+  if (role === 'phone' && !document.hidden && wakeLock) keepAwake();
+});
+window.addEventListener('pagehide', () => connection?.close());
+function resizeTV() { const rect = $('tv-viewport').getBoundingClientRect(); $('tv-scene').style.setProperty('--tv-scale', Math.min(rect.width / 1920, rect.height / 1080)); }
+window.addEventListener('resize', resizeTV);
+if (role === 'phone' && !ROOM_PATTERN.test(room)) { role = 'home'; text('home-error', 'Нужен шестизначный код с большого экрана.'); }
+if (!['host', 'phone'].includes(role)) role = 'home';
+document.body.dataset.role = role; document.body.dataset.transport = isLocal ? 'lan' : demo ? 'demo' : 'relay';
 show('home', role === 'home'); show('host', role === 'host'); show('phone', role === 'phone');
-document.body.dataset.role = role;
-
-setInterval(() => {
-  if (role === 'host') {
-    if (connected && performance.now() - lastSeen > 4500) {
-      connected = false; trial.pause('connection'); connection('host-connection', 'Телефон не отвечает'); sendState();
-    }
-    if (trial.tick()) sendState();
-    renderHost();
-  } else if (role === 'phone') {
-    if (connected && performance.now() - lastSeen > 4500) phoneStatus('disconnected', 'Большой экран не отвечает. Таймер будет остановлен на стороне мастера.');
-    renderPhone();
-  }
-}, 50);
-setInterval(() => {
-  if (role === 'phone') link?.send({ kind: phoneState ? 'ping' : 'hello' });
-}, 1000);
+text('phone-room', room); resizeTV();
+if (role !== 'home') createConnection();
+setInterval(render, 50);

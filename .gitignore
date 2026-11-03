@@ -1,3 +1,6 @@
 node_modules/
 test-results/
 .DS_Store
+.asset-tools/
+lan-terminal.patch
+*.log

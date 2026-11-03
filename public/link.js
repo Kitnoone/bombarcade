@@ -1,4 +1,5 @@
 import { RELAY_URL } from './config.js';
+import { randomToken } from './identity.js';
 export const ROOM_PATTERN = /^[A-Z0-9]{6}$/;
 const PREFIX = 'bombarcade-v2-';
 
@@ -12,7 +13,7 @@ export class Link {
   constructor({ role, room, local = false, clientId, onMessage, onStatus }) {
     Object.assign(this, { role, room, local, clientId, onMessage, onStatus });
     this.closed = false; this.operatorId = null; this.cursor = 0;
-    this.streamId = crypto.randomUUID(); this.queue = []; this.controllers = new Set();
+    this.streamId = randomToken(16); this.queue = []; this.controllers = new Set();
     this.lastHeartbeat = 0; this.pendingState = null; this.publishing = false;
     const key = PREFIX + role + '-' + room;
     try { this.token = sessionStorage.getItem(key) || secret(); sessionStorage.setItem(key, this.token); }
@@ -105,7 +106,7 @@ export class Link {
     // Polling is the heartbeat; it does not need an extra queued ping packet.
     if (payload.kind === 'ping') return true;
     if (!['key', 'move', 'hello'].includes(payload.kind)) return false;
-    this.queue.push({ packet: payload, requestId: this.streamId + '-' + crypto.randomUUID() });
+    this.queue.push({ packet: payload, requestId: this.streamId + '-' + randomToken(16) });
     this.flush(); return true;
   }
   async publish() {
