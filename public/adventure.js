@@ -5,7 +5,7 @@ export const FIELD = Object.freeze({ columns: 18, rows: 12, radius: 2 });
 export const TRANSITION_MS = 1800;
 // Second protocol: eight digits, 10 s on the TV, then 40 s to type them on the phone.
 export const SECOND = Object.freeze({ length: 8, showMs: 10_000, inputMs: 40_000, attempts: 3 });
-export const VIRUS_DEFAULTS = Object.freeze({ count: 3, stepMs: 800 });
+export const VIRUS_DEFAULTS = Object.freeze({ count: 3, stepMs: 2500 });
 export const START = Object.freeze({ col: 2, row: 5 });
 export const MOVES = Object.freeze({ '↑': [0, -1], '↓': [0, 1], '←': [-1, 0], '→': [1, 0] });
 export const NODE_KINDS = ['spire', 'gear', 'antenna', 'forge', 'skull'];

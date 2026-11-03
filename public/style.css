@@ -13,3 +13,5 @@
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}.crt:after{opacity:.2}}
 .probe .scan-arc{transform-box:fill-box;transform-origin:center}
 .field-zone svg{overflow:hidden}
+/* Apply to the entire console, including disabled keys and the space between them. */
+[data-role=phone], [data-role=phone] button, [data-role=phone] a{touch-action:manipulation}

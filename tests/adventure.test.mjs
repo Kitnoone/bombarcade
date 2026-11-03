@@ -122,17 +122,17 @@ test('a virus wakes exactly when its cell enters the two-hex scan', () => {
   assert.equal(g.viruses[0].active, true); assert.equal(g.alert, 1); assert.match(g.contact, /ВИРУС ОБНАРУЖЕН/);
   assert.equal(g.controllerState().alarm, 1);
 });
-test('an awake virus keeps chasing after it leaves the scan, one legal step every 800 ms', () => {
+test('an awake virus keeps chasing after it leaves the scan, one legal step every 2500 ms by default', () => {
   const f = fixture(); const g = search(f, { viruses: [{ col: 6, row: 5 }] });
   move(g, '→'); move(g, '→'); assert(g.viruses[0].active);
   for (let i = 0; i < 6; i++) move(g, '←');
   for (let i = 0; i < 4; i++) move(g, '↓');
   assert(hexDistance(g.position, g.viruses[0]) > FIELD.radius, 'the virus is outside the scan');
   let previous = { col: g.viruses[0].col, row: g.viruses[0].row };
-  f.advance(799); assert(same(previous, g.viruses[0]), 'no step before 800 ms');
+  f.advance(2499); assert(same(previous, g.viruses[0]), 'no step before 2500 ms');
   for (let i = 0; i < 4; i++) {
     const before = Math.abs(previous.col - g.position.col) + Math.abs(previous.row - g.position.row);
-    f.advance(i === 0 ? 1 : 800);
+    f.advance(i === 0 ? 1 : 2500);
     const now = { col: g.viruses[0].col, row: g.viruses[0].row };
     assert(neighbours(previous).some(p => same(p, now)), 'one adjacent step, no teleport');
     assert.equal(Math.abs(now.col - g.position.col) + Math.abs(now.row - g.position.row), before - 1, 'shortest path');
@@ -140,7 +140,7 @@ test('an awake virus keeps chasing after it leaves the scan, one legal step ever
   }
 });
 test('the player can outrun a chasing virus with timely moves', () => {
-  const f = fixture(); const g = search(f, { viruses: [{ col: 6, row: 5 }] });
+  const f = fixture({ virus: { stepMs: 800 } }); const g = search(f, { viruses: [{ col: 6, row: 5 }] });
   move(g, '→'); move(g, '→'); assert(g.viruses[0].active);
   for (let i = 0; i < 8; i++) { f.step(400); move(g, i < 2 ? '←' : '↓'); }
   assert.equal(g.stage, 'explore');

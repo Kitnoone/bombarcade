@@ -9,6 +9,7 @@ import path from 'node:path';
 import { attach } from './server/ws.mjs';
 import { Hub } from './server/session.mjs';
 import { lanAddresses } from './server/net.mjs';
+import { VIRUS_DEFAULTS } from './public/adventure.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, 'public');
@@ -24,7 +25,7 @@ export function loadConfig(file = path.join(here, 'bombarcade.config.json')) {
   catch (error) { console.warn('Не удалось прочитать bombarcade.config.json, использую значения по умолчанию:', error.message); }
   return {
     port: Number(process.env.PORT || config.port || 4173),
-    virus: { count: Number(config.virusCount ?? 3), stepMs: Number(config.virusStepMs ?? 800) },
+    virus: { count: Number(config.virusCount ?? VIRUS_DEFAULTS.count), stepMs: Number(config.virusStepMs ?? VIRUS_DEFAULTS.stepMs) },
     openBrowser: config.openBrowser !== false,
   };
 }
