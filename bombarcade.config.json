@@ -1,0 +1,6 @@
+{
+  "port": 4173,
+  "virusCount": 3,
+  "virusStepMs": 800,
+  "openBrowser": true
+}
