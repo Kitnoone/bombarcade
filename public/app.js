@@ -4,6 +4,7 @@ import { renderField } from './field.js';
 import { ROOM_PATTERN } from './link.js';
 import { randomToken } from './identity.js';
 import { detectLocal, SocketConnection, BrowserConnection } from './transport.js';
+import { preventDoubleTapZoom } from './touch.js';
 
 const $ = id => document.getElementById(id);
 const text = (id, value) => { const node = $(id); if (node.textContent !== String(value)) node.textContent = value; };
@@ -300,6 +301,7 @@ window.addEventListener('resize', resizeTV);
 if (role === 'phone' && !ROOM_PATTERN.test(room)) { role = 'home'; text('home-error', 'Нужен шестизначный код с большого экрана.'); }
 if (!['host', 'phone'].includes(role)) role = 'home';
 document.body.dataset.role = role; document.body.dataset.transport = isLocal ? 'lan' : demo ? 'demo' : 'relay';
+if (role === 'phone') preventDoubleTapZoom($('phone'));
 show('home', role === 'home'); show('host', role === 'host'); show('phone', role === 'phone');
 text('phone-room', room); resizeTV();
 if (role !== 'home') createConnection();

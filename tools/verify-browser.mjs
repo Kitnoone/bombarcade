@@ -37,6 +37,7 @@ const waitText = (page, selector, expected) => page.waitForFunction(({selector,e
 try {
   await host.goto(`${base}/?view=host`); await host.waitForFunction(() => document.querySelector('#phone-link').href.includes('&key='));
   session = [...hub.sessions.values()][0];
+  check('New sessions use the 2500 ms virus step', session.engine.virusConfig.stepMs === 2500 && await host.locator('#virus-speed').inputValue() === '2500');
   const url = await host.locator('#phone-link').getAttribute('href');
   check('QR URL uses physical LAN address, port, room and join key', new URL(url).hostname === address && new URL(url).searchParams.has('key'));
   check('QR is live SVG', await host.locator('#qr svg').count() === 1);
@@ -55,6 +56,11 @@ try {
   const arrows = [...session.engine.sequence];
   await shot(host, 'tv-protocol-1');
   check('Protocol I exposes nine disabled keys during the 10-second display', await phone.locator('#keypad button:visible:disabled').count() === 9 && session.engine.duration() === 10000);
+  const initialScale = await phone.evaluate(() => window.visualViewport.scale);
+  const disabledKey = await phone.locator('#keypad button:visible').first().boundingBox();
+  await phone.touchscreen.tap(disabledKey.x + disabledKey.width / 2, disabledKey.y + disabledKey.height / 2);
+  await phone.touchscreen.tap(disabledKey.x + disabledKey.width / 2, disabledKey.y + disabledKey.height / 2);
+  check('Rapid taps on disabled keys do not zoom or enter symbols', await phone.evaluate(() => window.visualViewport.scale) === initialScale && session.engine.entered.length === 0);
   await host.locator('#pause').click();
   await host.waitForFunction(() => document.body.dataset.paused === 'true');
   const left = session.engine.remaining(); await advance(3000);
@@ -80,6 +86,17 @@ try {
     check(`Phone ${width}px has no horizontal overflow and large unobstructed controls`, bounds.scroll === bounds.width && bounds.buttons.every(b => b.x >= 0 && b.x + b.w <= bounds.width && b.w >= 55 && b.h >= 65));
   }
   await phone.setViewportSize({ width: 390, height: 844 });
+  session.engine.viruses = []; push();
+  const beforeRapid = { ...session.engine.position };
+  const right = await phone.locator('[data-direction="→"]').boundingBox();
+  const rapidScale = await phone.evaluate(() => window.visualViewport.scale);
+  for (let i = 0; i < 6; i++) {
+    await phone.touchscreen.tap(right.x + right.width / 2, right.y + right.height / 2);
+    await host.waitForFunction(col => document.querySelector('#field').dataset.position === `${col}:5`, beforeRapid.col + i + 1);
+  }
+  check('Six rapid touches move six times without zooming', session.engine.position.col === beforeRapid.col + 6 && await phone.evaluate(() => window.visualViewport.scale) === rapidScale);
+  for (let i = 0; i < 6; i++) await phone.locator('[data-direction="←"]').tap();
+  await host.waitForFunction(col => document.querySelector('#field').dataset.position === `${col}:5`, beforeRapid.col);
   // Exercise a real chase, visibility boundary, collision and master retry through the UI.
   const e = session.engine;
   e.nodes = e.nodes.map(n => ({ ...n, col: n.target ? 16 : n.col, row: n.target ? 9 : n.row }));
@@ -97,10 +114,10 @@ try {
   await host.locator('#pause').click();
   for (let i = 0; i < 2; i++) await phone.locator('[data-direction="←"]').tap();
   await host.waitForFunction(() => document.querySelectorAll('.field-viruses .virus').length === 0);
-  const before = e.viruses[0].col; await advance(810);
+  const before = e.viruses[0].col; await advance(e.virusConfig.stepMs + 10);
   check('Virus continues pursuing outside visibility', e.viruses[0].col < before);
   await advance(5000);
-  for (let i = 0; i < 12 && e.stage === 'explore'; i++) await advance(810);
+  for (let i = 0; i < 12 && e.stage === 'explore'; i++) await advance(e.virusConfig.stepMs + 10);
   await waitStage('failure');
   check('Virus collision costs exactly one attempt', e.attemptsLeft() === 2);
   await waitText(phone, '#phone-instruction', 'Зонд захвачен');
