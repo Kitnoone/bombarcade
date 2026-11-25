@@ -77,7 +77,7 @@ export class Session {
     this.streams = new Map();
     this.rtt = null; this.signatures = { host: '', phone: '' }; this.lastSync = 0; this.hostLeft = hub.now();
   }
-  links() { return this.hub.links().map(link => ({ ...link, url: `http://${link.address}:${link.port}/?view=phone&room=${this.code}&key=${this.joinKey}` })); }
+  links() { return this.hub.links().map(link => ({ ...link, url: `http://${link.address}:${link.port}/?view=phone&room=${this.code}&key=${this.joinKey}&transport=lan` })); }
   attachHost(socket) {
     if (this.host && this.host !== socket) { this.host.send({ t: 'error', code: 'replaced', message: 'Большой экран открыт в другом окне.' }); this.host.session = null; this.host.close(4000, 'replaced'); }
     this.host = socket; socket.session = this; socket.role = 'host';
@@ -142,7 +142,8 @@ export class Session {
   tick(now) {
     for (const socket of [this.host, this.phone]) if (socket && wall() - socket.lastSeen > LIVENESS_MS) { socket.close(4002, 'timeout'); this.detach(socket); }
     const changed = this.engine.tick();
-    this.push(changed ? false : now - this.lastSync >= SYNC_MS);
+    const syncDue = now - this.lastSync >= SYNC_MS;
+    if (changed || syncDue) this.push(syncDue);
   }
   push(force = false) {
     if (force) this.lastSync = this.hub.now();

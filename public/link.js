@@ -47,7 +47,11 @@ export class Link {
       });
       let data;
       try { data = await response.json(); } catch { throw new Error('Сервер связи не ответил. Проверь интернет и попробуй снова.'); }
-      if (!response.ok) throw new Error(data.error || 'Сервер связи временно недоступен.');
+      if (!response.ok) {
+        const error = new Error(data.error || 'Сервер связи временно недоступен.');
+        error.status = response.status;
+        throw error;
+      }
       return data;
     } finally { clearTimeout(timeout); this.controllers.delete(controller); }
   }
@@ -62,7 +66,16 @@ export class Link {
       this.started = true;
       this.onStatus(this.role === 'host' ? 'ready' : 'connected');
       this.poll();
-    } catch (error) { this.fail(error); }
+    } catch (error) {
+      if (this.closed) return;
+      if (error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status)) {
+        this.fail(error);
+        return;
+      }
+      this.onStatus('disconnected', 'Сервер связи пока не отвечает. Повторяем подключение…');
+      this.retryDelay = Math.min((this.retryDelay || 500) * 2, 8000);
+      this.joinTimer = setTimeout(() => this.openRelay(), this.retryDelay);
+    }
   }
   async poll() {
     if (this.closed || !this.started) return;
@@ -134,7 +147,7 @@ export class Link {
   }
   close() {
     this.closed = true;
-    clearTimeout(this.pollTimer); clearTimeout(this.publishTimer); clearTimeout(this.flushTimer);
+    clearTimeout(this.joinTimer); clearTimeout(this.pollTimer); clearTimeout(this.publishTimer); clearTimeout(this.flushTimer);
     for (const controller of this.controllers) controller.abort();
     this.bus?.close();
   }

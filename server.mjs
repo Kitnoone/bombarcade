@@ -16,6 +16,7 @@ const root = path.join(here, 'public');
 const types = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.txt': 'text/plain; charset=utf-8',
+  '.mp4': 'video/mp4', '.webm': 'video/webm',
   '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ico': 'image/x-icon',
 };
 
@@ -86,7 +87,7 @@ async function main() {
   try { port = await listen(server, config.port); }
   catch (error) { console.error('\nНе удалось запустить сервер:', error.message); process.exit(1); }
   const addresses = lanAddresses();
-  const hostUrl = `http://localhost:${port}/?view=host`;
+  const hostUrl = `http://localhost:${port}/?view=host&transport=lan`;
   console.log('\n  BOMBARCADE · КОРАБЕЛЬНЫЙ ТЕРМИНАЛ');
   console.log('  Локальный сервер работает. Не закрывай это окно во время игры.\n');
   console.log('  Большой экран (на этом компьютере):  ' + hostUrl);

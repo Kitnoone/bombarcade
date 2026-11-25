@@ -4,6 +4,7 @@ import { renderField } from './field.js';
 import { ROOM_PATTERN } from './link.js';
 import { randomToken } from './identity.js';
 import { detectLocal, SocketConnection, BrowserConnection } from './transport.js';
+import { screenKeeper } from './screen-keeper.js';
 import { preventDoubleTapZoom } from './touch.js';
 
 const $ = id => document.getElementById(id);
@@ -14,9 +15,12 @@ let role = params.get('view') || 'home';
 let room = (params.get('room') || '').toUpperCase();
 const demo = params.get('transport') === 'local';
 const joinKey = params.get('key') || '';
-const isLocal = !demo && await detectLocal();
+// A LAN invitation identifies its own server, even when discovery is slow.
+const lanInvite = params.get('transport') === 'lan' || (role === 'phone' && !!joinKey);
+const isLocal = !demo && (lanInvite || await detectLocal());
 let connection, state, receivedAt = 0, online = false, previousPhase = '', settingsLoaded = false;
-let links = [], selectedUrl = '', alertSeen = 0, warningUntil = 0, command = 0, wakeLock;
+let links = [], selectedUrl = '', alertSeen = 0, warningUntil = 0, command = 0;
+let keeper;
 const stream = randomToken(16), inFlight = new Map();
 
 function route(view, code = '', key = '') {
@@ -25,6 +29,7 @@ function route(view, code = '', key = '') {
   if (code) url.searchParams.set('room', code);
   if (key) url.searchParams.set('key', key);
   if (demo) url.searchParams.set('transport', 'local');
+  else if (isLocal) url.searchParams.set('transport', 'lan');
   return url;
 }
 function status(id, message, good) { text(id, message); $(id).classList.toggle('online', !!good); }
@@ -57,7 +62,9 @@ $('create').onclick = () => location.assign(route('host'));
 $('demo').onclick = () => { const url = route('host'); url.searchParams.set('transport', 'local'); location.assign(url); };
 $('join-form').onsubmit = event => { event.preventDefault(); const code = $('room-input').value.trim().toUpperCase(); if (ROOM_PATTERN.test(code)) location.assign(route('phone', code, $('join-key').value.trim())); };
 $('room-input').oninput = event => { event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); };
-text('transport-description', isLocal ? 'Корабельный сервер в локальной сети. Подключи компьютер и телефон к одному роутеру: игра работает без интернета.' : 'Наблюдатель видит код и карту. Оператор управляет с телефона. Интернет-режим соединяет устройства через ретранслятор.');
+text('transport-description', isLocal ? 'Корабельный сервер в локальной сети. Подключи компьютер и телефон к одному роутеру: игра работает без интернета.' : 'За одним столом подключи телефон к компьютеру через общий роутер. Для игры из разных сетей выбери сеанс через интернет.');
+show('lan-setup', !isLocal);
+text('create', isLocal ? 'Создать сеанс в локальной сети' : 'Создать сеанс через интернет');
 show('join-key', isLocal); show('join-key-label', isLocal);
 
 function updateLink() {
@@ -237,6 +244,11 @@ function renderPhone() {
   const stage = state?.stage || 'lobby', second = state?.protocol === 2, timed = ['show', 'input'].includes(stage), ms = remaining();
   const linked = online && state?.link.host;
   status('phone-connection', linked ? 'КАНАЛ АКТИВЕН' : 'НЕТ СВЯЗИ', linked);
+  const piloting = Boolean(second && stage === 'explore' && linked);
+  if (keeper && keeper.piloting !== piloting) {
+    document.documentElement.classList.toggle('piloting', piloting);
+    keeper.setPiloting(piloting);
+  }
   if (state) phaseEffects();
   text('phone-protocol', second ? 'NODUS / 02' : 'MNEMO / 01'); text('phone-phase', state?.paused ? 'ПАУЗА' : phases[stage]);
   text('phone-attempt', state ? second ? `${attemptLabel(state)} · ОСТ. ${state.attemptsLeft}` : 'ПРОТОКОЛ I' : '');
@@ -244,7 +256,7 @@ function renderPhone() {
   $('phone-timer-bar').style.width = `${timed && state ? Math.min(100, ms / state.durationMs * 100) : 0}%`;
   const controls = linked && !state.paused;
   const layout = state?.layout || SYMBOLS;
-  show('movement', second && stage === 'explore'); show('phone-radar', stage === 'explore' || stage === 'lobby');
+  show('movement', second && stage === 'explore'); show('phone-radar', stage === 'lobby');
   show('keypad', ['show', 'input'].includes(stage)); show('phone-progress', ['show', 'input'].includes(stage)); show('phone-transition', stage === 'transition');
   $('keypad').classList.toggle('numeric', second); $('keypad').setAttribute('aria-label', second ? 'Цифровая клавиатура' : 'Клавиатура 3 на 3');
   keys.forEach((key, i) => {
@@ -279,12 +291,6 @@ $('retry').onclick = () => sendMaster('retry'); $('restart').onclick = () => { s
 $('release-phone').onclick = () => sendMaster('release-phone');
 $('save-settings').onclick = () => { if ($('virus-count').reportValidity() && $('virus-speed').reportValidity()) sendMaster('settings', { count: Number($('virus-count').value), stepMs: Number($('virus-speed').value) }); };
 $('reconnect-phone').onclick = createConnection;
-show('wake-phone', !!navigator.wakeLock && window.isSecureContext);
-async function keepAwake() {
-  try { wakeLock = await navigator.wakeLock.request('screen'); text('wake-phone', 'Экран останется включённым'); wakeLock.addEventListener('release', () => { text('wake-phone', 'Не гасить экран телефона'); }); }
-  catch { text('wake-phone', 'Отключи автоблокировку в настройках телефона'); }
-}
-$('wake-phone').onclick = keepAwake;
 document.addEventListener('keydown', event => {
   if (role !== 'host' || /INPUT|SELECT|TEXTAREA|BUTTON|A/.test(event.target.tagName) || event.repeat) return;
   if (event.code === 'Space') { event.preventDefault(); $('pause').click(); }
@@ -293,7 +299,6 @@ document.addEventListener('keydown', event => {
 });
 document.addEventListener('visibilitychange', () => {
   if (role === 'host' && document.hidden && active() && !state.paused) sendMaster('pause', { reason: 'hidden' });
-  if (role === 'phone' && !document.hidden && wakeLock) keepAwake();
 });
 window.addEventListener('pagehide', () => connection?.close());
 function resizeTV() { const rect = $('tv-viewport').getBoundingClientRect(); $('tv-scene').style.setProperty('--tv-scale', Math.min(rect.width / 1920, rect.height / 1080)); }
@@ -301,7 +306,10 @@ window.addEventListener('resize', resizeTV);
 if (role === 'phone' && !ROOM_PATTERN.test(room)) { role = 'home'; text('home-error', 'Нужен шестизначный код с большого экрана.'); }
 if (!['host', 'phone'].includes(role)) role = 'home';
 document.body.dataset.role = role; document.body.dataset.transport = isLocal ? 'lan' : demo ? 'demo' : 'relay';
-if (role === 'phone') preventDoubleTapZoom($('phone'));
+if (role === 'phone') {
+  preventDoubleTapZoom(document.body);
+  keeper = screenKeeper($('wake-phone'));
+}
 show('home', role === 'home'); show('host', role === 'host'); show('phone', role === 'phone');
 text('phone-room', room); resizeTV();
 if (role !== 'home') createConnection();

@@ -17,12 +17,17 @@ try {
   for (const mode of ['demo','relay']) {
     const contexts = [];
     const context = await browser.newContext({viewport:{width:1920,height:1080}}); contexts.push(context);
-    let requests = 0;
+    let requests = 0, firstJoin = true;
     async function routes(c) {
       await c.route('**/api/local', route => route.fulfill({status:404,body:'Static hosting'}));
       await c.route('https://bombarcade-relay.kittyty.chatgpt.site/api/relay/**', async route => {
         requests++;
         const r = route.request(), headers = r.headers();
+        if (firstJoin && r.url().endsWith('/join')) {
+          firstJoin = false;
+          await route.abort('failed');
+          return;
+        }
         const response = await relayRequest(new Request(r.url(), {method:r.method(),headers,...(r.method()==='POST'?{body:r.postData()}: {})}), db);
         await route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:await response.text()});
       });

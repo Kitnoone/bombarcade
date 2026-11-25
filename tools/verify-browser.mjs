@@ -46,9 +46,10 @@ try {
     socket.on('framesent', event => { try { const m = JSON.parse(event.payload); if (m.t === 'cmd') sentAt.set(m.n, performance.now()); } catch {} });
     socket.on('framereceived', event => { try { const m = JSON.parse(event.payload); messages.push(m); if (m.t === 'ack' && sentAt.has(m.n)) { ackMs.push(performance.now() - sentAt.get(m.n)); sentAt.delete(m.n); } } catch {} });
   });
+  await phone.route('**/api/local', route => route.abort());
   await phone.goto(url);
   await waitText(host, '#host-connection', 'Телефон подключён'); await waitText(phone, '#phone-connection', 'КАНАЛ АКТИВЕН');
-  check('Two independent browser contexts connect over LAN HTTP');
+  check('LAN invite connects even when network discovery is unavailable');
   check('Local HTTP works without secure-context APIs', await phone.evaluate(() => !window.isSecureContext && typeof crypto.randomUUID === 'undefined'));
   check('Wake Lock is hidden on HTTP', await phone.locator('#wake-phone').isHidden());
   await shot(phone, 'phone-lobby-390');
@@ -85,6 +86,17 @@ try {
     const bounds = await phone.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth, buttons: [...document.querySelectorAll('#movement button')].map(b => { const r = b.getBoundingClientRect(); return { x:r.x,y:r.y,w:r.width,h:r.height }; }), content: document.querySelector('.phone-terminal').getBoundingClientRect().bottom }));
     check(`Phone ${width}px has no horizontal overflow and large unobstructed controls`, bounds.scroll === bounds.width && bounds.buttons.every(b => b.x >= 0 && b.x + b.w <= bounds.width && b.w >= 55 && b.h >= 65));
   }
+  for (const viewport of [{width: 375, height: 667}, {width: 740, height: 360}]) {
+    await phone.setViewportSize(viewport);
+    await phone.evaluate(() => window.scrollTo(0, 500));
+    const geometry = await phone.locator('#movement').evaluate(pad => {
+      const r = pad.getBoundingClientRect();
+      return { dx: r.x + r.width / 2 - innerWidth / 2, dy: r.y + r.height / 2 - innerHeight / 2,
+        scrolled: scrollY, gesture: getComputedStyle(pad).touchAction };
+    });
+    check('D-pad stays centered and stationary at ' + viewport.width + '×' + viewport.height,
+      Math.abs(geometry.dx) < 1 && Math.abs(geometry.dy) < 1 && geometry.scrolled === 0 && geometry.gesture === 'none');
+  }
   await phone.setViewportSize({ width: 390, height: 844 });
   session.engine.viruses = []; push();
   const beforeRapid = { ...session.engine.position };
@@ -94,6 +106,7 @@ try {
     await phone.touchscreen.tap(right.x + right.width / 2, right.y + right.height / 2);
     await host.waitForFunction(col => document.querySelector('#field').dataset.position === `${col}:5`, beforeRapid.col + i + 1);
   }
+  check('LAN wake fallback plays inline after tapping the pad', await phone.locator('.standby-media').evaluate(video => video.playsInline && !video.paused));
   check('Six rapid touches move six times without zooming', session.engine.position.col === beforeRapid.col + 6 && await phone.evaluate(() => window.visualViewport.scale) === rapidScale);
   for (let i = 0; i < 6; i++) await phone.locator('[data-direction="←"]').tap();
   await host.waitForFunction(col => document.querySelector('#field').dataset.position === `${col}:5`, beforeRapid.col);
@@ -119,6 +132,8 @@ try {
   await advance(5000);
   for (let i = 0; i < 12 && e.stage === 'explore'; i++) await advance(e.virusConfig.stepMs + 10);
   await waitStage('failure');
+  check('Leaving the pad restores page scrolling and stops wake media', await phone.evaluate(() =>
+    !document.documentElement.classList.contains('piloting') && document.querySelector('.standby-media').paused));
   check('Virus collision costs exactly one attempt', e.attemptsLeft() === 2);
   await waitText(phone, '#phone-instruction', 'Зонд захвачен');
   await shot(host, 'tv-failure'); await shot(phone, 'phone-failure-390');
